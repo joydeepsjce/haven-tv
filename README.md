@@ -7,7 +7,15 @@ No ads, no tracking, no account, no root. Written in plain Java with no librarie
 mostly wallpapers.
 
 ![Haven home screen](docs/home.jpg)
-![Continue watching, Top picks and Favourites](docs/rows.jpg)
+
+| | |
+|---|---|
+| ![Continue watching, Top picks and Favourites](docs/rows.jpg) | ![Search](docs/search.jpg) |
+| *Continue watching, Top picks, Favourites* | *Search: apps as you type, plus Google and YouTube search* |
+| ![All apps](docs/apps.jpg) | ![Edit mode](docs/edit.jpg) |
+| *All apps* | *Edit mode: hold OK, then move tiles with the arrows* |
+| ![Tile options](docs/options.jpg) | |
+| *Tile options: dock, folders, rename, hide* | |
 
 ## Features
 
