@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Haven" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:colorAccent">#FFFFFFFF</item>
+        <item name="android:windowDisablePreview">false</item>
+    </style>
+</resources>

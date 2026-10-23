@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_key_service_label">Haven Home button</string>
+    <string name="home_key_service_description">Makes the remote\'s Home button open Haven instead of the Google TV home screen. It only looks at the Home key and the Google TV home screen.</string>
+</resources>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="home.haven.tv"
+    android:versionCode="16"
+    android:versionName="4.0">
+
+    <!-- Only used to fetch the current temperature from api.open-meteo.com. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Approximate (network) location for the weather; granted over adb. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Granted over adb: lets Haven read other apps' Continue watching (Watch Next) rows. -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+    <!-- Granted over adb; lets Haven restart its Home-key service if a reboot or a "cleaner" app stops it. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <!-- Optional, granted over adb: lets the Recent row list apps not opened from Haven. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Android 11+ package visibility: let the launcher see every launchable app. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:label="Haven"
+        android:icon="@drawable/ic_launcher"
+        android:banner="@drawable/banner"
+        android:theme="@style/Theme.Haven"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".HomeActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density"
+            android:windowSoftInputMode="adjustNothing">
+            <intent-filter android:priority="1">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".HomeKeyService"
+            android:directBootAware="true"
+            android:exported="true"
+            android:label="@string/home_key_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/home_key_service" />
+        </service>
+
+        <!-- Gets Haven past some makers' boot blockers, e.g. TCL's (see BootPassService). No metadata, so not a usable input. -->
+        <service
+            android:name=".BootPassService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TV_INPUT">
+            <intent-filter>
+                <action android:name="android.media.tv.TvInputService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".KeeperJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <service
+            android:name=".HavenDream"
+            android:exported="true"
+            android:label="Haven nature photos"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
