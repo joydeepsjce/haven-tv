@@ -14,8 +14,8 @@ mostly wallpapers.
 | *Continue watching, Top picks, Favourites* | *Search: apps as you type, plus Google and YouTube search* |
 | ![All apps](docs/apps.jpg) | ![Edit mode](docs/edit.jpg) |
 | *All apps* | *Edit mode: hold OK, then move tiles with the arrows* |
-| ![Tile options](docs/options.jpg) | |
-| *Tile options: dock, folders, rename, hide* | |
+| ![Tile options](docs/options.jpg) | ![Wallpaper plugin](docs/plugin.jpg) |
+| *Tile options: dock, folders, rename, hide* | *A Projectivy wallpaper plugin (Photo of the Day)* |
 
 ## Features
 
@@ -34,6 +34,11 @@ mostly wallpapers.
 - **Wallpapers**: 26 Wikimedia Commons featured photos, with the place and photographer shown
   in the corner. The photo blurs while you use the remote and turns sharp again when you stop.
   The focus colour comes from the photo. You can add your own photos (see below).
+- **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins, such as
+  Bing photo of the day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
+  Install a plugin, then choose it in Haven Settings > Wallpaper. Its settings open from Haven
+  Settings too. Still images, drawables and colours are supported; video and Lottie wallpapers
+  aren't yet. Plugins that react to the focused card or to idle mode receive those events.
 - **Clock, date and weather** for wherever the TV is (Open-Meteo; °F in the US).
 - **Edit mode**: hold OK until the tiles wiggle, then move apps between the dock and the grid,
   make folders, rename or hide apps.
@@ -86,6 +91,10 @@ gives the Home button back to the stock launcher.
 | `INTERNET` | Weather (api.open-meteo.com) and Netflix trending titles (JustWatch's public API). Nothing else is sent anywhere. |
 
 ## Tips
+
+- **Wallpaper plugins:** install a Projectivy wallpaper plugin APK, for example
+  [Photo of the Day](https://github.com/spocky/projectivy-plugin-wallpaper-bingwallpaper/releases),
+  with `adb install`. Then go to Haven Settings > Wallpaper. Choose "Haven nature photos" to go back.
 
 - **Your own wallpapers:** copy JPEGs to the TV, and Haven uses them the next time it starts:
   `adb push photo.jpg /sdcard/Android/data/home.haven.tv/files/wallpapers/`

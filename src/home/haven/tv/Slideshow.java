@@ -3,9 +3,14 @@ package home.haven.tv;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -15,11 +20,16 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,9 +39,13 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import tv.projectivy.plugin.wallpaperprovider.api.Event;
+import tv.projectivy.plugin.wallpaperprovider.api.Wallpaper;
+
 /**
- * Rotating nature photos with a cross-fade and a slow zoom. Each slide also carries a blurred
- * copy that fades in behind the app grid and folders, like tvOS.
+ * Rotating wallpapers with a cross-fade and a slow zoom. Each slide also carries a blurred
+ * copy that fades in behind the app grid and folders, like tvOS. The photos are Haven's own,
+ * or come from a Projectivy wallpaper plugin chosen in Haven Settings (see {@link Plugins}).
  */
 final class Slideshow {
 
@@ -40,7 +54,24 @@ final class Slideshow {
         void onSlide(String title, String credit, int color);
     }
 
+    /** Haven setting holding the chosen plugin's id; empty for Haven's own photos. */
+    static final String SOURCE_KEY = "wallSource";
     private static final long FADE_MS = 1800;
+    private static final int MAX_DOWNLOAD = 30 * 1024 * 1024;
+
+    /** One wallpaper: where to load it from, what to show in the corner, and how to fit it. */
+    private static final class Item {
+        final String src, title, credit;
+        final int type, mode;
+
+        Item(String src, String title, String credit, int type, int mode) {
+            this.src = src;
+            this.title = title;
+            this.credit = credit;
+            this.type = type;
+            this.mode = mode;
+        }
+    }
 
     final FrameLayout view;
     private final Context c;
@@ -52,11 +83,14 @@ final class Slideshow {
     private final Runnable next = this::showNext;
     private FrameLayout front, back;
     private ObjectAnimator zoom;
-    private List<String> photos;
+    private List<Item> photos;
     private int index = -1;
-    private long lastChange;
+    private long lastChange, fetchedAt;
     private boolean running;
     private float blur;
+    /** Set while a plugin is the source; null for Haven's photos. */
+    private volatile Plugins.Connection plugin;
+    private long lastEventAt;
 
     Slideshow(Context c, long intervalMs, Listener listener) {
         this.c = c;
@@ -68,18 +102,63 @@ final class Slideshow {
         front = slide();
         view.addView(back, new FrameLayout.LayoutParams(-1, -1));
         view.addView(front, new FrameLayout.LayoutParams(-1, -1));
+        bg.execute(this::loadCredits);
+        reload();
+    }
+
+    /** Re-reads the wallpaper source from Haven's settings and starts over with it. */
+    void reload() {
         bg.execute(() -> {
-            loadCredits();
-            List<String> list = scan();
+            String id = c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(SOURCE_KEY, "");
+            Plugins.Info info = Plugins.byId(c, id);
+            if (plugin != null && (info == null || !plugin.info.id().equals(info.id()))) {
+                plugin.close();
+                plugin = null;
+            }
+            if (info != null && plugin == null) plugin = new Plugins.Connection(c, info);
+            List<Item> list = load();
             ui.post(() -> {
                 photos = list;
+                index = -1;
                 if (running) showNext();
+            });
+        });
+    }
+
+    /** The plugin in use, or null when showing Haven's photos (or when the plugin gave nothing). */
+    Plugins.Info plugin() {
+        Plugins.Connection p = plugin;
+        return p != null ? p.info : null;
+    }
+
+    /**
+     * Passes a launcher event (a focused card, idle mode) to the plugin if it asked for that kind.
+     * A plugin that answers with wallpapers changes the photo straight away.
+     */
+    void event(Event e) {
+        Plugins.Connection p = plugin;
+        if (p == null || !p.info.wants(e.type)) return;
+        long at = lastEventAt = SystemClock.uptimeMillis();
+        bg.execute(() -> {
+            if (at != lastEventAt) return; // A newer event (focus moved on) replaces this one.
+            List<Item> got = fromPlugin(p.get(e), p.info);
+            if (got.isEmpty()) return;
+            Item item = got.get(0);
+            Bitmap b = decode(item);
+            Bitmap soft = b != null ? blurred(b) : null;
+            if (b != null) ui.post(() -> {
+                if (at != lastEventAt) return;
+                crossfade(b, soft, item);
+                lastChange = SystemClock.uptimeMillis();
+                ui.removeCallbacks(next);
+                if (running) ui.postDelayed(next, intervalMs);
             });
         });
     }
 
     private FrameLayout slide() {
         FrameLayout f = new FrameLayout(c);
+        f.setBackgroundColor(Color.BLACK);
         ImageView photo = new ImageView(c);
         photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
         ImageView soft = new ImageView(c);
@@ -119,32 +198,52 @@ final class Slideshow {
 
     void release() {
         pause();
-        bg.shutdownNow();
+        Plugins.Connection p = plugin;
+        bg.execute(() -> { if (p != null) p.close(); });
+        bg.shutdown();
     }
 
     private void showNext() {
         ui.removeCallbacks(next);
         if (photos == null || photos.isEmpty()) return;
         index = (index + 1) % photos.size();
-        String src = photos.get(index);
+        Item item = photos.get(index);
+        boolean wrapped = index == photos.size() - 1;
         bg.execute(() -> {
-            Bitmap b = decode(src);
+            Bitmap b = decode(item);
             Bitmap soft = b != null ? blurred(b) : null;
+            // A plugin's list is kept as long as the plugin asked; after that, ask it again.
+            Plugins.Connection p = plugin;
+            List<Item> fresh = p != null && wrapped && SystemClock.elapsedRealtime() - fetchedAt > p.info.cacheMs ? load() : null;
             ui.post(() -> {
-                if (b != null) crossfade(b, soft, src);
+                if (fresh != null) {
+                    photos = fresh;
+                    index = -1;
+                }
+                if (b != null) crossfade(b, soft, item);
                 lastChange = SystemClock.uptimeMillis();
-                if (running) ui.postDelayed(next, intervalMs);
+                if (running) ui.postDelayed(next, b != null ? intervalMs : 1000);
             });
         });
     }
 
-    private void crossfade(Bitmap b, Bitmap soft, String src) {
+    private void crossfade(Bitmap b, Bitmap soft, Item item) {
         FrameLayout incoming = back, outgoing = front;
         if (zoom != null) zoom.cancel();
         incoming.animate().cancel();
-        ((ImageView) incoming.getChildAt(0)).setImageBitmap(b);
+        ImageView photo = (ImageView) incoming.getChildAt(0);
+        photo.setImageBitmap(b);
+        photo.setScaleType(item.mode == Wallpaper.FIT_CENTER || item.mode == Wallpaper.FIT_CENTER_BLURRED_BG
+                ? ImageView.ScaleType.FIT_CENTER
+                : item.mode == Wallpaper.STRETCH ? ImageView.ScaleType.FIT_XY : ImageView.ScaleType.CENTER_CROP);
+        // Letterboxed photos sit on a blurred copy of themselves, or on black.
+        if (item.mode == Wallpaper.FIT_CENTER_BLURRED_BG && soft != null) {
+            incoming.setBackground(new BitmapDrawable(c.getResources(), soft));
+        } else {
+            incoming.setBackgroundColor(Color.BLACK);
+        }
         ((ImageView) incoming.getChildAt(1)).setImageBitmap(soft);
-        incoming.getChildAt(1).setAlpha(blur);
+        incoming.getChildAt(1).setAlpha(item.mode == Wallpaper.BLUR ? 1f : blur);
         incoming.setAlpha(0f);
         incoming.setScaleX(1f);
         incoming.setScaleY(1f);
@@ -161,12 +260,7 @@ final class Slideshow {
         zoom.start();
         front = incoming;
         back = outgoing;
-
-        String[] cr = credits.get(src);
-        String title = cr != null ? cr[0] : new File(src).getName().replaceFirst("\\.[^.]+$", "");
-        // Just the photographer on screen; full licence details are in assets/wallpapers/credits.tsv.
-        String line = cr != null ? "Photo: " + cr[1] : "";
-        listener.onSlide(title, line, mainColor(soft));
+        listener.onSlide(item.title, item.credit, mainColor(soft));
     }
 
     /** Average of the photo's more colourful pixels, so a blue sky or red dune wins over grey rock. */
@@ -186,6 +280,36 @@ final class Slideshow {
 
     // ---------------------------------------------------------------- loading
 
+    /** The plugin's list when one is chosen and gives something Haven can show; otherwise Haven's photos. */
+    private List<Item> load() {
+        Plugins.Connection p = plugin;
+        if (p != null) {
+            List<Item> list = fromPlugin(p.get(Event.timeElapsed()), p.info);
+            fetchedAt = SystemClock.elapsedRealtime();
+            if (!list.isEmpty()) return list;
+        }
+        return scan();
+    }
+
+    /** Keeps the kinds Haven can draw: still images, drawables and colours (not video or Lottie). */
+    private static List<Item> fromPlugin(List<Wallpaper> walls, Plugins.Info info) {
+        List<Item> out = new ArrayList<>();
+        for (Wallpaper w : walls) {
+            if (w == null || w.uri == null || w.uri.isEmpty()) continue;
+            if (w.type != Wallpaper.IMAGE && w.type != Wallpaper.DRAWABLE
+                    && w.type != Wallpaper.ANIMATED_DRAWABLE && w.type != Wallpaper.COLOR) continue;
+            String title = notEmpty(w.title) ? w.title : info.name;
+            String credit = !notEmpty(w.author) ? (notEmpty(w.source) ? w.source : "")
+                    : w.author.contains("©") ? w.author : "Photo: " + w.author;
+            out.add(new Item(w.uri, title, credit, w.type, w.displayMode));
+        }
+        return out;
+    }
+
+    private static boolean notEmpty(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+
     private void loadCredits() {
         try (BufferedReader r = new BufferedReader(new InputStreamReader(
                 c.getAssets().open("wallpapers/credits.tsv"), StandardCharsets.UTF_8))) {
@@ -197,7 +321,7 @@ final class Slideshow {
         } catch (IOException ignored) { }
     }
 
-    private List<String> scan() {
+    private List<Item> scan() {
         List<String> list = new ArrayList<>();
         try {
             String[] names = c.getAssets().list("wallpapers");
@@ -208,7 +332,14 @@ final class Slideshow {
         File[] files = dir != null ? dir.listFiles() : null;
         if (files != null) for (File f : files) if (isImage(f.getName())) list.add(f.getAbsolutePath());
         Collections.shuffle(list);
-        return list;
+        List<Item> out = new ArrayList<>();
+        for (String src : list) {
+            String[] cr = credits.get(src);
+            String title = cr != null ? cr[0] : new File(src).getName().replaceFirst("\\.[^.]+$", "");
+            // Just the photographer on screen; full licence details are in assets/wallpapers/credits.tsv.
+            out.add(new Item(src, title, cr != null ? "Photo: " + cr[1] : "", Wallpaper.IMAGE, Wallpaper.CROP));
+        }
+        return out;
     }
 
     private static boolean isImage(String n) {
@@ -216,23 +347,98 @@ final class Slideshow {
         return l.endsWith(".jpg") || l.endsWith(".jpeg") || l.endsWith(".png") || l.endsWith(".webp");
     }
 
-    private Bitmap decode(String src) {
+    private Bitmap decode(Item item) {
         try {
+            if (item.type == Wallpaper.COLOR) {
+                Bitmap b = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888);
+                b.eraseColor(Color.parseColor(item.src.trim()));
+                return b;
+            }
+            byte[] data = read(item.src);
+            if (data == null) return null;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inJustDecodeBounds = true;
-            try (InputStream in = open(src)) { BitmapFactory.decodeStream(in, null, o); }
+            BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            if (o.outWidth <= 0) return item.src.startsWith("android.resource:") ? drawable(item.src) : null;
             int w = c.getResources().getDisplayMetrics().widthPixels, sample = 1;
             while (o.outWidth / (sample * 2) >= w) sample *= 2;
             o = new BitmapFactory.Options();
             o.inSampleSize = sample;
-            try (InputStream in = open(src)) { return BitmapFactory.decodeStream(in, null, o); }
-        } catch (IOException | OutOfMemoryError e) {
-            return null;
+            return BitmapFactory.decodeByteArray(data, 0, data.length, o);
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            return item.src.startsWith("android.resource:") ? drawable(item.src) : null;
         }
     }
 
+    /** The image's bytes. Web images are kept in Haven's cache so each one downloads once. */
+    private byte[] read(String src) throws IOException {
+        if (src.startsWith("http://") || src.startsWith("https://")) {
+            File dir = new File(c.getCacheDir(), "plugin-walls");
+            File f = new File(dir, Integer.toHexString(src.hashCode()) + "-" + src.length());
+            if (f.isFile()) {
+                f.setLastModified(System.currentTimeMillis());
+                try (InputStream in = new FileInputStream(f)) { return readAll(in); }
+            }
+            HttpURLConnection h = (HttpURLConnection) new URL(src).openConnection();
+            h.setConnectTimeout(15_000);
+            h.setReadTimeout(20_000);
+            h.setRequestProperty("User-Agent", "Haven (Android TV launcher)");
+            try (InputStream in = h.getInputStream()) {
+                byte[] data = readAll(in);
+                trimCache(dir);
+                if (dir.isDirectory() || dir.mkdirs()) {
+                    try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
+                }
+                return data;
+            } finally {
+                h.disconnect();
+            }
+        }
+        try (InputStream in = open(src)) { return in != null ? readAll(in) : null; }
+    }
+
     private InputStream open(String src) throws IOException {
-        return src.startsWith("asset:") ? c.getAssets().open(src.substring(6)) : new FileInputStream(src);
+        if (src.startsWith("asset:")) return c.getAssets().open(src.substring(6));
+        if (src.startsWith("content:") || src.startsWith("android.resource:") || src.startsWith("file:")) {
+            return c.getContentResolver().openInputStream(Uri.parse(src));
+        }
+        return new FileInputStream(src);
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[64 * 1024];
+        for (int n; (n = in.read(buf)) > 0; ) {
+            out.write(buf, 0, n);
+            if (out.size() > MAX_DOWNLOAD) throw new IOException("too large");
+        }
+        return out.toByteArray();
+    }
+
+    /** Keeps the newest 20 downloaded wallpapers. */
+    private static void trimCache(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null || files.length < 20) return;
+        java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        for (int i = 19; i < files.length; i++) files[i].delete();
+    }
+
+    /** android.resource://pkg/type/name pointing at a vector or other non-bitmap drawable. */
+    private Bitmap drawable(String src) {
+        try {
+            Uri u = Uri.parse(src);
+            Resources res = c.getPackageManager().getResourcesForApplication(u.getAuthority());
+            List<String> seg = u.getPathSegments();
+            int id = seg.size() == 1 ? Integer.parseInt(seg.get(0)) : res.getIdentifier(seg.get(1), seg.get(0), u.getAuthority());
+            Drawable d = res.getDrawable(id, null);
+            int w = c.getResources().getDisplayMetrics().widthPixels, h = c.getResources().getDisplayMetrics().heightPixels;
+            Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, w, h);
+            d.draw(new Canvas(b));
+            return b;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
     }
 
     /** A small, heavily blurred copy; the ImageView's smooth upscaling finishes the softening. */

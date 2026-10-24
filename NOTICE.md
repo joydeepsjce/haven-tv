@@ -45,6 +45,13 @@ Licences: [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/),
 [Inter](https://rsms.me/inter/) by Rasmus Andersson, under the SIL Open Font License 1.1
 ([text](https://openfontlicense.org/open-font-license-official-text/)).
 
+## Projectivy wallpaper plugin API (`aidl/`, `src/tv/projectivy/`)
+
+The interface and data classes for Projectivy Launcher's wallpaper plugins come from
+[spocky/projectivy-plugin-wallpaper-provider](https://github.com/spocky/projectivy-plugin-wallpaper-provider)
+(Apache License 2.0). The `.aidl` file is copied as published. `Wallpaper` and `Event` are Java
+rewrites of the Kotlin originals with the same parcel format. Haven isn't affiliated with Projectivy.
+
 ## Sound (`res/raw/tick.wav`)
 
 Generated for Haven; covered by the MIT licence.

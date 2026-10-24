@@ -30,8 +30,10 @@ rm -rf build && mkdir -p build/gen build/classes build/dex
 "$(tool aapt2)" compile --dir res -o build/res.zip
 "$(tool aapt2)" link -I "$JAR" --manifest AndroidManifest.xml \
     --min-sdk-version 26 --target-sdk-version 34 --java build/gen -o build/base.apk build/res.zip
+# Projectivy's wallpaper plugin interface (aidl/), compiled to Java next to R.java.
+"$(tool aidl)" -I aidl -o build/gen aidl/tv/projectivy/plugin/wallpaperprovider/api/IWallpaperProviderService.aidl
 javac -nowarn -Xlint:-options --release 11 -classpath "$JAR" -encoding UTF-8 \
-    -d build/classes build/gen/home/haven/tv/R.java src/home/haven/tv/*.java
+    -d build/classes $(find build/gen src -name '*.java')
 "$(tool d8)" --release --min-api 26 --lib "$JAR" --output build/dex $(find build/classes -name '*.class')
 cp build/base.apk build/unsigned.apk
 (cd build/dex && jar -uMf ../unsigned.apk classes.dex)

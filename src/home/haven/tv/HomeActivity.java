@@ -34,8 +34,8 @@ import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextClock;
-import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.TextView;
 
 import org.json.JSONObject;
 
@@ -53,6 +53,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import tv.projectivy.plugin.wallpaperprovider.api.Event;
 
 /**
  * A minimal, Apple TV-style home screen: rotating wallpaper, a dock of favourites, an app grid
@@ -114,12 +116,13 @@ public class HomeActivity extends Activity {
     private ValueAnimator blurAnim;
     private long lastWeather = -WEATHER_EVERY_MS, lastKeyAt;
     private int photoColor = Color.WHITE;
-    private boolean resumed, navigating, userMoved;
+    private boolean resumed, navigating, userMoved, pluginSettingsOpen;
     private final ExecutorService img = Executors.newFixedThreadPool(2);
     // Blur while the remote is in use; the photo goes sharp again after 10 seconds without a press.
     private final Runnable idle = () -> {
         navigating = false;
         updateBlur(true);
+        slideshow.event(Event.launcherIdle(true));
     };
 
     private final Runnable weatherTick = this::refreshWeather;
@@ -174,6 +177,10 @@ public class HomeActivity extends Activity {
         rearmTries = 0;
         ui.removeCallbacks(rearm);
         ui.postDelayed(rearm, 1500);
+        if (pluginSettingsOpen) {
+            pluginSettingsOpen = false;
+            slideshow.reload();
+        }
         slideshow.start();
         long stale = SystemClock.elapsedRealtime() - lastWeather;
         ui.removeCallbacks(weatherTick);
@@ -238,6 +245,7 @@ public class HomeActivity extends Activity {
             if (!navigating) {
                 navigating = true;
                 updateBlur(true);
+                slideshow.event(Event.launcherIdle(false));
             }
             ui.removeCallbacks(idle);
             ui.postDelayed(idle, 10_000);
@@ -459,6 +467,13 @@ public class HomeActivity extends Activity {
         creditTitle = Ui.text(this, "", 11, Ui.medium);
         creditLine = Ui.text(this, "", 9, Ui.regular);
         creditLine.setAlpha(0.7f);
+        // Plugin photos can come with long captions: keep the credit to a narrow column.
+        for (TextView t : new TextView[]{creditTitle, creditLine}) {
+            t.setGravity(Gravity.END);
+            t.setMaxWidth(dp(360));
+            t.setMaxLines(t == creditLine ? 2 : 1);
+            t.setEllipsize(TextUtils.TruncateAt.END);
+        }
         credit.addView(creditTitle, new LinearLayout.LayoutParams(-2, -2));
         credit.addView(creditLine, new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams crp = new LinearLayout.LayoutParams(-2, -2);
@@ -707,6 +722,8 @@ public class HomeActivity extends Activity {
                     .setDuration(180).setInterpolator(ease).start();
             if (!has) return;
             tick();
+            Apps.Entry focused = entries.get(key);
+            if (focused != null) slideshow.event(Event.cardFocused(0, 0, labelOf(key), focused.pkg));
             if (where == IN_DOCK) followInDock(cell);
             else if (where == IN_GRID) followInGrid(cell);
             if (key.equals(editKey)) startWiggle(tile);
@@ -830,6 +847,7 @@ public class HomeActivity extends Activity {
             if (!has) return;
             tick();
             s.follow(cell);
+            slideshow.event(Event.cardFocused(0, 0, labelOf(e.key), e.pkg));
         });
         tile.setOnClickListener(v -> launch(e, v));
         tile.setOnLongClickListener(v -> { rowOptions(e.key); return true; });
@@ -916,6 +934,7 @@ public class HomeActivity extends Activity {
             if (!has) return;
             tick();
             sec.follow(cell);
+            slideshow.event(Event.programCardFocused(item.title, null, item.image, 0));
         });
         tile.setOnClickListener(v -> {
             try {
@@ -1804,6 +1823,20 @@ public class HomeActivity extends Activity {
             shade.animate().alpha((100 - store.brightness) / 100f).setDuration(250).start();
             showHavenSettings();
         });
+        Plugins.Info wallPlugin = slideshow.plugin();
+        names.add("Wallpaper: " + (wallPlugin != null ? wallPlugin.name : "Haven nature photos") + "…");
+        acts.add(this::chooseWallpaper);
+        if (wallPlugin != null && wallPlugin.settingsIntent() != null) {
+            names.add(wallPlugin.name + " settings…");
+            acts.add(() -> {
+                try {
+                    startActivity(wallPlugin.settingsIntent());
+                    pluginSettingsOpen = true;
+                } catch (Exception ex) {
+                    Toast.makeText(this, "Couldn't open the plugin's settings", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
         names.add("Background blur: " + new String[]{"Off", "Low", "Medium", "High"}[store.blurLevel]);
         acts.add(() -> {
             store.blurLevel = (store.blurLevel + 1) % 4;
@@ -1848,6 +1881,28 @@ public class HomeActivity extends Activity {
                 .setTitle("Haven")
                 .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
                 .show();
+    }
+
+    /** Haven's own photos, or any installed Projectivy wallpaper plugin. */
+    private void chooseWallpaper() {
+        bg.execute(() -> {
+            List<Plugins.Info> found = Plugins.find(this);
+            ui.post(() -> {
+                List<String> names = new ArrayList<>();
+                names.add("Haven nature photos");
+                for (Plugins.Info i : found) names.add(i.name);
+                if (found.isEmpty()) names.add("Get more: install a Projectivy wallpaper plugin");
+                new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Wallpaper")
+                        .setItems(names.toArray(new String[0]), (d, which) -> {
+                            if (which > found.size()) return;
+                            String id = which == 0 ? "" : found.get(which - 1).id();
+                            getSharedPreferences("haven", MODE_PRIVATE).edit().putString(Slideshow.SOURCE_KEY, id).apply();
+                            slideshow.reload();
+                        })
+                        .show();
+            });
+        });
     }
 
     private void showHidden() {
