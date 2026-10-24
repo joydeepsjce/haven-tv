@@ -64,15 +64,15 @@ the TV and computer on the same network.
 1. On the TV, turn on **Developer options**: Settings > System > About, then press OK on
    *Android TV OS build* seven times. Then turn on **USB debugging** and **Network debugging**
    under Settings > System > Developer options. Note the TV's IP address (Settings > Network).
-2. Get `haven.apk` from [Releases](../../releases), or build it yourself (below).
+2. Get `haven-4.2.apk` from [Releases](../../releases), or build it yourself (below).
 3. Run the setup script. The first time, the TV asks you to allow debugging from your computer.
 
    ```sh
-   sh setup.sh 192.168.1.50 haven.apk
+   sh setup.sh 192.168.1.50 haven-4.2.apk
    ```
    On Windows:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File setup.ps1 -Tv 192.168.1.50 -Apk haven.apk
+   powershell -ExecutionPolicy Bypass -File setup.ps1 -Tv 192.168.1.50 -Apk haven-4.2.apk
    ```
 4. Press Home on the remote.
 
