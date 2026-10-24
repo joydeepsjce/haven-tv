@@ -83,6 +83,9 @@ final class Ui {
         tile.setElevation(dp(c, 2));
         tile.setCameraDistance(8000 * c.getResources().getDisplayMetrics().density);
         tile.setLayoutParams(new FrameLayout.LayoutParams(dp(c, wDp), dp(c, hDp)));
+        float radius = dp(c, wDp >= 200 ? 16 : 12);
+        // Glass edge and sheen over every tile, like tvOS's Liquid Glass icons.
+        tile.setForeground(GlassDrawable.overlay(tile, radius, 0.75f));
         if (e.banner != null) {
             tile.setBackgroundColor(0xFF1B1E24);
             ImageView iv = new ImageView(c);
@@ -90,8 +93,8 @@ final class Ui {
             iv.setImageDrawable(copy(e.banner));
             tile.addView(iv, new FrameLayout.LayoutParams(-1, -1));
         } else {
-            tile.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                    new int[]{shade(e.tint, 1.15f), shade(e.tint, 0.6f)}));
+            // No banner: frosted glass over the wallpaper, coloured faintly by the app's icon.
+            tile.setBackground(new GlassDrawable(tile, radius, (0x70 << 24) | (shade(e.tint, 0.8f) & 0xFFFFFF), 0.75f));
             if (e.icon != null) {
                 ImageView iv = new ImageView(c);
                 iv.setScaleType(ImageView.ScaleType.FIT_CENTER);

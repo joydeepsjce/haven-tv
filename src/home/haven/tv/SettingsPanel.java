@@ -82,8 +82,8 @@ final class SettingsPanel {
         return r;
     }
 
-    private static final int PANEL = 0xD90B0D11, ROW = 0x14FFFFFF, ROW_FOCUS = 0x33FFFFFF,
-            NAV_FOCUS = 0xFF4A4F57, NAV_CURRENT = 0x26FFFFFF, SUB = 0xFF9BA1AA;
+    private static final int PANEL = 0x990B0D11, ROW = 0x14FFFFFF, ROW_FOCUS = 0x33FFFFFF,
+            NAV_FOCUS = 0x47FFFFFF, NAV_CURRENT = 0x26FFFFFF, SUB = 0xFF9BA1AA;
 
     final FrameLayout view;
     private final Context c;
@@ -109,7 +109,7 @@ final class SettingsPanel {
         nav = new LinearLayout(c);
         nav.setOrientation(LinearLayout.VERTICAL);
         nav.setPadding(dp(22), dp(30), dp(22), dp(30));
-        nav.setBackground(panel());
+        nav.setBackground(new GlassDrawable(nav, dp(30), PANEL, 0.6f));
         TextView title = Ui.text(c, "Settings", 26, Ui.light);
         title.setShadowLayer(0, 0, 0, 0);
         title.setPadding(dp(14), 0, 0, dp(18));
@@ -121,7 +121,7 @@ final class SettingsPanel {
         LinearLayout right = new LinearLayout(c);
         right.setOrientation(LinearLayout.VERTICAL);
         right.setPadding(dp(22), dp(28), dp(22), dp(10));
-        right.setBackground(panel());
+        right.setBackground(new GlassDrawable(right, dp(30), PANEL, 0.6f));
         heading = Ui.text(c, "", 26, Ui.light);
         heading.setShadowLayer(0, 0, 0, 0);
         heading.setPadding(dp(8), 0, 0, dp(16));
@@ -251,7 +251,7 @@ final class SettingsPanel {
         for (int i = 0; i < navItems.size(); i++) {
             TextView t = navItems.get(i);
             boolean focused = t == f, here = i == current;
-            t.setBackground(focused || here ? pill(focused ? NAV_FOCUS : NAV_CURRENT, dp(14)) : null);
+            t.setBackground(focused || here ? new GlassDrawable(null, dp(14), focused ? NAV_FOCUS : NAV_CURRENT, focused ? 0.9f : 0.35f) : null);
             t.setTypeface(focused || here ? Ui.semibold : Ui.regular);
             t.setTextColor(focused || here ? Color.WHITE : 0xFFC9CDD3);
         }
@@ -287,7 +287,7 @@ final class SettingsPanel {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(20), dp(r.subtitle != null ? 11 : 15), dp(20), dp(r.subtitle != null ? 11 : 15));
-        row.setBackground(pill(ROW, dp(18)));
+        row.setBackground(new GlassDrawable(null, dp(18), ROW, 0.3f));
         row.setFocusable(true);
         row.setTag(r);
 
@@ -320,8 +320,7 @@ final class SettingsPanel {
             row.addView(val, vlp);
         }
         row.setOnFocusChangeListener((v, has) -> {
-            v.setBackground(pill(has ? ROW_FOCUS : ROW, dp(18)));
-            v.animate().scaleX(has ? 1.012f : 1f).scaleY(has ? 1.012f : 1f).setDuration(120).start();
+            v.setBackground(new GlassDrawable(null, dp(18), has ? ROW_FOCUS : ROW, has ? 0.9f : 0.3f));
             if (has) styleNav();
         });
         row.setOnClickListener(v -> {

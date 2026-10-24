@@ -307,6 +307,7 @@ final class Slideshow {
         zoom.start();
         front = incoming;
         back = outgoing;
+        GlassDrawable.backdrop = soft;
         listener.onSlide(item.title, item.credit, mainColor(soft));
     }
 

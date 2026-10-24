@@ -550,6 +550,7 @@ public class HomeActivity extends Activity {
 
     private void showCredit(String title, String line, int color) {
         photoColor = color;
+        invalidateAll(root);
         Ui.setAccent(store.dynColor ? Ui.accentFrom(color) : Color.WHITE);
         creditTitle.setText(title);
         creditLine.setText(line);
@@ -931,6 +932,7 @@ public class HomeActivity extends Activity {
         tile.setElevation(dp(2));
         tile.setCameraDistance(8000 * getResources().getDisplayMetrics().density);
         tile.setBackgroundColor(0xFF22252B);
+        tile.setForeground(GlassDrawable.overlay(tile, dp(10), 0.7f));
         tile.setFocusable(true);
         tile.setClickable(true);
         android.widget.ImageView art = new android.widget.ImageView(this);
@@ -1070,10 +1072,7 @@ public class HomeActivity extends Activity {
         bar.addView(accountButton());
         LinearLayout tabs = row();
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable plate = new GradientDrawable();
-        plate.setColor(0x29FFFFFF);
-        plate.setCornerRadius(dp(18));
-        tabs.setBackground(plate);
+        tabs.setBackground(new GlassDrawable(tabs, -1, 0x14FFFFFF, 0.8f));
         tabs.setPadding(dp(3), dp(3), dp(3), dp(3));
         View searchTab = tab(R.drawable.ic_tab_search, null, "Search", () -> openSearch(""), false);
         searchTab.setTag("tab:search");
@@ -1393,8 +1392,9 @@ public class HomeActivity extends Activity {
         FrameLayout b = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(letter != null ? 0xFFC9A27E : 0x29FFFFFF);
-        b.setBackground(bg);
+        bg.setColor(letter != null ? 0xFFC9A27E : Color.WHITE);
+        GlassDrawable glass = new GlassDrawable(b, -1, 0x14FFFFFF, 0.8f);
+        b.setBackground(letter != null ? bg : glass);
         b.setFocusable(true);
         b.setClickable(true);
         b.setContentDescription(desc);
@@ -1415,7 +1415,7 @@ public class HomeActivity extends Activity {
         }
         b.setOnFocusChangeListener((v, has) -> {
             bg.setStroke(has ? dp(2) : 0, Color.WHITE);
-            if (letter == null) bg.setColor(has ? Color.WHITE : 0x29FFFFFF);
+            if (letter == null) v.setBackground(has ? bg : glass);
             if (inner instanceof android.widget.ImageView) {
                 ((android.widget.ImageView) inner).setImageTintList(
                         android.content.res.ColorStateList.valueOf(has ? 0xFF15171A : Color.WHITE));
@@ -2397,6 +2397,12 @@ public class HomeActivity extends Activity {
 
     private static FrameLayout.LayoutParams match() {
         return new FrameLayout.LayoutParams(-1, -1);
+    }
+
+    private static void invalidateAll(View v) {
+        if (v == null) return;
+        v.invalidate();
+        if (v instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) invalidateAll(((ViewGroup) v).getChildAt(i));
     }
 
     private int dp(float v) {
