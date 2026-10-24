@@ -935,6 +935,7 @@ public class HomeActivity extends Activity {
             tick();
             sec.follow(cell);
             slideshow.event(Event.programCardFocused(item.title, null, item.image, 0));
+            if (slideshow.followsFocus()) slideshow.showArt(item.image, item.title, appName.isEmpty() ? "" : "From " + appName);
         });
         tile.setOnClickListener(v -> {
             try {
@@ -1824,8 +1825,10 @@ public class HomeActivity extends Activity {
             showHavenSettings();
         });
         Plugins.Info wallPlugin = slideshow.plugin();
-        names.add("Wallpaper: " + (wallPlugin != null ? wallPlugin.name : "Haven nature photos") + "…");
+        names.add("Wallpaper: " + slideshow.sourceName() + "…");
         acts.add(this::chooseWallpaper);
+        names.add("Add your own photos…");
+        acts.add(this::addPhotos);
         if (wallPlugin != null && wallPlugin.settingsIntent() != null) {
             names.add(wallPlugin.name + " settings…");
             acts.add(() -> {
@@ -1883,26 +1886,128 @@ public class HomeActivity extends Activity {
                 .show();
     }
 
-    /** Haven's own photos, or any installed Projectivy wallpaper plugin. */
+    /** Haven's photos, your photos, your apps' movie and show art, or a Projectivy wallpaper plugin. */
     private void chooseWallpaper() {
         bg.execute(() -> {
             List<Plugins.Info> found = Plugins.find(this);
+            int mine = Slideshow.myPhotoCount(this);
             ui.post(() -> {
                 List<String> names = new ArrayList<>();
-                names.add("Haven nature photos");
-                for (Plugins.Info i : found) names.add(i.name);
-                if (found.isEmpty()) names.add("Get more: install a Projectivy wallpaper plugin");
+                List<String> ids = new ArrayList<>();
+                names.add("Haven nature photos" + (mine > 0 ? " and yours" : ""));
+                ids.add("");
+                if (mine > 0) {
+                    names.add("My photos (" + mine + ")");
+                    ids.add(Slideshow.MINE);
+                }
+                names.add("Movie & show art (from your apps)");
+                ids.add(Slideshow.MOVIES);
+                for (Plugins.Info i : found) {
+                    names.add(i.name);
+                    ids.add(i.id());
+                }
                 new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                         .setTitle("Wallpaper")
                         .setItems(names.toArray(new String[0]), (d, which) -> {
-                            if (which > found.size()) return;
-                            String id = which == 0 ? "" : found.get(which - 1).id();
-                            getSharedPreferences("haven", MODE_PRIVATE).edit().putString(Slideshow.SOURCE_KEY, id).apply();
+                            getSharedPreferences("haven", MODE_PRIVATE).edit().putString(Slideshow.SOURCE_KEY, ids.get(which)).apply();
                             slideshow.reload();
                         })
                         .show();
             });
         });
+    }
+
+    // ---------------------------------------------------------------- your own photos
+
+    private static final int REQ_USB = 42;
+
+    private void addPhotos() {
+        int mine = Slideshow.myPhotoCount(this);
+        List<String> names = new ArrayList<>();
+        List<Runnable> acts = new ArrayList<>();
+        names.add("From your phone (same Wi-Fi)");
+        acts.add(this::uploadFromPhone);
+        names.add("From a USB drive");
+        acts.add(this::importFromUsb);
+        if (mine > 0) {
+            names.add("Delete your photos (" + mine + ")…");
+            acts.add(() -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("Delete your " + mine + " photos?")
+                    .setMessage("Removes the photos you added to Haven. Haven's own photos stay.")
+                    .setPositiveButton("Delete", (d, w) -> bg.execute(() -> {
+                        PhotoImport.deleteAll(this);
+                        ui.post(slideshow::reload);
+                    }))
+                    .setNegativeButton("Cancel", null)
+                    .show());
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Add your own photos")
+                .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
+                .show();
+    }
+
+    private void uploadFromPhone() {
+        AlertDialog[] dialog = new AlertDialog[1];
+        int[] added = {0};
+        PhotoImport.Upload up = PhotoImport.startUpload(this, n -> {
+            added[0] = n;
+            if (dialog[0] != null) dialog[0].setMessage(uploadMessage(null, n));
+        });
+        if (up == null) {
+            Toast.makeText(this, "The TV isn't connected to a network", Toast.LENGTH_LONG).show();
+            return;
+        }
+        dialog[0] = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Add photos from your phone")
+                .setMessage(uploadMessage(up.url, 0))
+                .setPositiveButton("Done", null)
+                .setOnDismissListener(d -> {
+                    up.stop();
+                    if (added[0] > 0) slideshow.reload();
+                })
+                .show();
+        dialog[0].setMessage(uploadMessage(up.url, 0));
+        uploadUrl = up.url;
+    }
+
+    private String uploadUrl = "";
+
+    private String uploadMessage(String url, int added) {
+        if (url != null) uploadUrl = url;
+        return "On a phone or computer on the same Wi-Fi, open this address in the browser:\n\n"
+                + uploadUrl + "\n\nThen choose photos. The page works while this window is open.\n\n"
+                + (added == 0 ? "Waiting for photos…" : added + (added == 1 ? " photo added" : " photos added"))
+                + "\n\nTo see only yours: Wallpaper > My photos.";
+    }
+
+    private void importFromUsb() {
+        String perm = Build.VERSION.SDK_INT >= 33 ? "android.permission.READ_MEDIA_IMAGES"
+                : android.Manifest.permission.READ_EXTERNAL_STORAGE;
+        if (checkSelfPermission(perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{perm}, REQ_USB);
+            return;
+        }
+        if (PhotoImport.usbDrives(this).isEmpty()) {
+            Toast.makeText(this, "No USB drive found. Plug one in and try again.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, "Looking for photos on the USB drive…", Toast.LENGTH_SHORT).show();
+        bg.execute(() -> {
+            int n = PhotoImport.importFromUsb(this);
+            ui.post(() -> {
+                Toast.makeText(this, n == 0 ? "No new photos found on the USB drive"
+                        : "Added " + n + (n == 1 ? " photo" : " photos") + " from the USB drive", Toast.LENGTH_LONG).show();
+                if (n > 0) slideshow.reload();
+            });
+        });
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code != REQ_USB) return;
+        if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) importFromUsb();
+        else Toast.makeText(this, "Haven needs access to photos to read the USB drive", Toast.LENGTH_LONG).show();
     }
 
     private void showHidden() {

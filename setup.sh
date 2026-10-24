@@ -34,6 +34,8 @@ sh_tv pm grant $PKG android.permission.READ_TV_LISTINGS
 sh_tv pm grant $PKG android.permission.ACCESS_COARSE_LOCATION || true
 # Recent row: recently used apps, including ones not opened from Haven.
 sh_tv appops set $PKG GET_USAGE_STATS allow
+# Add your own photos > From a USB drive: read photos on the drive.
+sh_tv pm grant $PKG android.permission.READ_MEDIA_IMAGES || true
 # Makes Haven the default home where the system allows it (Google TV ignores this for the Home key,
 # which is why the accessibility service below exists).
 sh_tv cmd package set-home-activity $PKG/.HomeActivity || true

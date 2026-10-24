@@ -34,6 +34,7 @@ Sh "pm grant $pkg android.permission.WRITE_SECURE_SETTINGS"
 Sh "pm grant $pkg android.permission.READ_TV_LISTINGS"
 Sh "pm grant $pkg android.permission.ACCESS_COARSE_LOCATION"
 Sh "appops set $pkg GET_USAGE_STATS allow"
+Sh "pm grant $pkg android.permission.READ_MEDIA_IMAGES"
 Sh "cmd package set-home-activity $pkg/.HomeActivity" | Out-Null
 
 Sh "am start -n $pkg/.HomeActivity" | Out-Null

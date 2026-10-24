@@ -56,6 +56,11 @@ final class Slideshow {
 
     /** Haven setting holding the chosen plugin's id; empty for Haven's own photos. */
     static final String SOURCE_KEY = "wallSource";
+    /** Built-in sources besides Haven's photos (empty id) and plugins (their component name). */
+    static final String MINE = "haven:mine", MOVIES = "haven:movies";
+    /** Display mode for movie art: fill the screen when the picture is wide and sharp enough, else letterbox. */
+    private static final int AUTO = -1;
+    private static final long MOVIES_FRESH_MS = 30 * 60_000L;
     private static final long FADE_MS = 1800;
     private static final int MAX_DOWNLOAD = 30 * 1024 * 1024;
 
@@ -90,7 +95,8 @@ final class Slideshow {
     private float blur;
     /** Set while a plugin is the source; null for Haven's photos. */
     private volatile Plugins.Connection plugin;
-    private long lastEventAt;
+    private volatile String source = "";
+    private volatile long lastEventAt;
 
     Slideshow(Context c, long intervalMs, Listener listener) {
         this.c = c;
@@ -110,7 +116,8 @@ final class Slideshow {
     void reload() {
         bg.execute(() -> {
             String id = c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(SOURCE_KEY, "");
-            Plugins.Info info = Plugins.byId(c, id);
+            source = id;
+            Plugins.Info info = id.startsWith("haven:") ? null : Plugins.byId(c, id);
             if (plugin != null && (info == null || !plugin.info.id().equals(info.id()))) {
                 plugin.close();
                 plugin = null;
@@ -123,6 +130,26 @@ final class Slideshow {
                 if (running) showNext();
             });
         });
+    }
+
+    /** What's showing, for Haven Settings. */
+    String sourceName() {
+        Plugins.Info p = plugin();
+        if (p != null) return p.name;
+        if (MOVIES.equals(source)) return "Movie & show art";
+        if (MINE.equals(source)) return "My photos";
+        return "Haven nature photos";
+    }
+
+    /** True when the wallpaper should follow the focused Continue watching / Top picks card. */
+    boolean followsFocus() {
+        return MOVIES.equals(source);
+    }
+
+    /** Shows a program's artwork now (movie art source), e.g. for the focused card. */
+    void showArt(String image, String title, String credit) {
+        if (image == null || image.isEmpty()) return;
+        showSoon(new Item(image, title, credit, Wallpaper.IMAGE, AUTO), null);
     }
 
     /** The plugin in use, or null when showing Haven's photos (or when the plugin gave nothing). */
@@ -138,22 +165,38 @@ final class Slideshow {
     void event(Event e) {
         Plugins.Connection p = plugin;
         if (p == null || !p.info.wants(e.type)) return;
-        long at = lastEventAt = SystemClock.uptimeMillis();
-        bg.execute(() -> {
-            if (at != lastEventAt) return; // A newer event (focus moved on) replaces this one.
+        showSoon(null, () -> {
             List<Item> got = fromPlugin(p.get(e), p.info);
-            if (got.isEmpty()) return;
-            Item item = got.get(0);
-            Bitmap b = decode(item);
-            Bitmap soft = b != null ? blurred(b) : null;
-            if (b != null) ui.post(() -> {
-                if (at != lastEventAt) return;
-                crossfade(b, soft, item);
-                lastChange = SystemClock.uptimeMillis();
-                ui.removeCallbacks(next);
-                if (running) ui.postDelayed(next, intervalMs);
-            });
+            return got.isEmpty() ? null : got.get(0);
         });
+    }
+
+    private interface Pick {
+        Item get();
+    }
+
+    /**
+     * Cross-fades to {@code item} (or whatever {@code pick} returns, worked out in the background)
+     * unless something newer was asked for meanwhile, as when focus moves on quickly.
+     */
+    private void showSoon(Item item, Pick pick) {
+        long at = lastEventAt = SystemClock.uptimeMillis();
+        ui.postDelayed(() -> {
+            if (at != lastEventAt) return;
+            bg.execute(() -> {
+                if (at != lastEventAt) return;
+                Item it = item != null ? item : pick.get();
+                Bitmap b = it != null ? decode(it) : null;
+                Bitmap soft = b != null ? blurred(b) : null;
+                if (b != null) ui.post(() -> {
+                    if (at != lastEventAt) return;
+                    crossfade(b, soft, it);
+                    lastChange = SystemClock.uptimeMillis();
+                    ui.removeCallbacks(next);
+                    if (running) ui.postDelayed(next, intervalMs);
+                });
+            });
+        }, 350);
     }
 
     private FrameLayout slide() {
@@ -214,7 +257,9 @@ final class Slideshow {
             Bitmap soft = b != null ? blurred(b) : null;
             // A plugin's list is kept as long as the plugin asked; after that, ask it again.
             Plugins.Connection p = plugin;
-            List<Item> fresh = p != null && wrapped && SystemClock.elapsedRealtime() - fetchedAt > p.info.cacheMs ? load() : null;
+            long age = SystemClock.elapsedRealtime() - fetchedAt;
+            boolean stale = p != null ? age > p.info.cacheMs : MOVIES.equals(source) && age > MOVIES_FRESH_MS;
+            List<Item> fresh = wrapped && stale ? load() : null;
             ui.post(() -> {
                 if (fresh != null) {
                     photos = fresh;
@@ -233,11 +278,13 @@ final class Slideshow {
         incoming.animate().cancel();
         ImageView photo = (ImageView) incoming.getChildAt(0);
         photo.setImageBitmap(b);
-        photo.setScaleType(item.mode == Wallpaper.FIT_CENTER || item.mode == Wallpaper.FIT_CENTER_BLURRED_BG
+        int mode = item.mode != AUTO ? item.mode
+                : b.getWidth() >= b.getHeight() * 1.3f && b.getWidth() >= 960 ? Wallpaper.CROP : Wallpaper.FIT_CENTER_BLURRED_BG;
+        photo.setScaleType(mode == Wallpaper.FIT_CENTER || mode == Wallpaper.FIT_CENTER_BLURRED_BG
                 ? ImageView.ScaleType.FIT_CENTER
-                : item.mode == Wallpaper.STRETCH ? ImageView.ScaleType.FIT_XY : ImageView.ScaleType.CENTER_CROP);
+                : mode == Wallpaper.STRETCH ? ImageView.ScaleType.FIT_XY : ImageView.ScaleType.CENTER_CROP);
         // Letterboxed photos sit on a blurred copy of themselves, or on black.
-        if (item.mode == Wallpaper.FIT_CENTER_BLURRED_BG && soft != null) {
+        if (mode == Wallpaper.FIT_CENTER_BLURRED_BG && soft != null) {
             incoming.setBackground(new BitmapDrawable(c.getResources(), soft));
         } else {
             incoming.setBackgroundColor(Color.BLACK);
@@ -282,13 +329,58 @@ final class Slideshow {
 
     /** The plugin's list when one is chosen and gives something Haven can show; otherwise Haven's photos. */
     private List<Item> load() {
+        if (MOVIES.equals(source)) {
+            List<Item> list = movies();
+            fetchedAt = SystemClock.elapsedRealtime();
+            if (!list.isEmpty()) return list;
+        } else if (MINE.equals(source)) {
+            List<Item> list = scan(true);
+            if (!list.isEmpty()) return list;
+        }
         Plugins.Connection p = plugin;
         if (p != null) {
             List<Item> list = fromPlugin(p.get(Event.timeElapsed()), p.info);
             fetchedAt = SystemClock.elapsedRealtime();
             if (!list.isEmpty()) return list;
         }
-        return scan();
+        return scan(false);
+    }
+
+    /** Artwork from your apps' Continue watching and channel rows (the same pictures as the cards). */
+    private List<Item> movies() {
+        List<WatchNext.Item> all = new ArrayList<>(WatchNext.load(c, 20));
+        java.util.Set<String> titles = new java.util.HashSet<>();
+        for (WatchNext.Item i : all) titles.add(i.title);
+        all.addAll(WatchNext.recommendations(c, 40, titles));
+        List<Item> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (WatchNext.Item i : all) {
+            if (i.image == null || i.image.isEmpty() || !seen.add(i.image)) continue;
+            out.add(new Item(i.image, i.title, "From " + appName(i.pkg), Wallpaper.IMAGE, AUTO));
+        }
+        Collections.shuffle(out);
+        return out;
+    }
+
+    private String appName(String pkg) {
+        try {
+            return String.valueOf(c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(pkg, 0)));
+        } catch (Exception e) {
+            return pkg;
+        }
+    }
+
+    /** The folder your own photos go in (from your phone, a USB drive or adb). */
+    static File myPhotosDir(Context c) {
+        return c.getExternalFilesDir("wallpapers");
+    }
+
+    static int myPhotoCount(Context c) {
+        File dir = myPhotosDir(c);
+        File[] files = dir != null ? dir.listFiles() : null;
+        int n = 0;
+        if (files != null) for (File f : files) if (isImage(f.getName())) n++;
+        return n;
     }
 
     /** Keeps the kinds Haven can draw: still images, drawables and colours (not video or Lottie). */
@@ -321,14 +413,15 @@ final class Slideshow {
         } catch (IOException ignored) { }
     }
 
-    private List<Item> scan() {
+    /** Haven's photos plus your own, or ({@code mineOnly}) just yours. */
+    private List<Item> scan(boolean mineOnly) {
         List<String> list = new ArrayList<>();
-        try {
+        if (!mineOnly) try {
             String[] names = c.getAssets().list("wallpapers");
             if (names != null) for (String n : names) if (isImage(n)) list.add("asset:wallpapers/" + n);
         } catch (IOException ignored) { }
-        // Extra photos: adb push them to /sdcard/Android/data/home.haven.tv/files/wallpapers/
-        File dir = c.getExternalFilesDir("wallpapers");
+        // Your photos: added from Haven Settings, or adb push to /sdcard/Android/data/home.haven.tv/files/wallpapers/
+        File dir = myPhotosDir(c);
         File[] files = dir != null ? dir.listFiles() : null;
         if (files != null) for (File f : files) if (isImage(f.getName())) list.add(f.getAbsolutePath());
         Collections.shuffle(list);
@@ -342,7 +435,7 @@ final class Slideshow {
         return out;
     }
 
-    private static boolean isImage(String n) {
+    static boolean isImage(String n) {
         String l = n.toLowerCase();
         return l.endsWith(".jpg") || l.endsWith(".jpeg") || l.endsWith(".png") || l.endsWith(".webp");
     }

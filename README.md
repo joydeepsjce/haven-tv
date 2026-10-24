@@ -33,7 +33,11 @@ mostly wallpapers.
   (Google's search) and "Search YouTube". The mic works like the remote's mic button.
 - **Wallpapers**: 26 Wikimedia Commons featured photos, with the place and photographer shown
   in the corner. The photo blurs while you use the remote and turns sharp again when you stop.
-  The focus colour comes from the photo. You can add your own photos (see below).
+  The focus colour comes from the photo.
+- **Movie & show art**: a wallpaper made from the artwork of your Continue watching and Top picks
+  rows, with no API key needed. When you move to a card, the wallpaper changes to that title.
+- **Your own photos**, added without adb: upload them from a phone's browser (Haven shows a short
+  address on the TV), or copy them from a USB drive. Show them with Haven's photos or on their own.
 - **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins, such as
   Bing photo of the day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
   Install a plugin, then choose it in Haven Settings > Wallpaper. Its settings open from Haven
@@ -88,7 +92,8 @@ gives the Home button back to the stock launcher.
 | `WRITE_SECURE_SETTINGS` (adb) | Starts the Home-button service again if something turns it off, sets animation speed to 0.5×, and keeps a backup of the layout (which apps are where, nothing personal). |
 | Usage access (adb) | Lists recent apps in the Recent row, including ones not opened from Haven. Optional. |
 | `ACCESS_COARSE_LOCATION` (adb) | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
-| `INTERNET` | Weather (api.open-meteo.com) and Netflix trending titles (JustWatch's public API). Nothing else is sent anywhere. |
+| `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
+| Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
 
 ## Tips
 
@@ -96,8 +101,14 @@ gives the Home button back to the stock launcher.
   [Photo of the Day](https://github.com/spocky/projectivy-plugin-wallpaper-bingwallpaper/releases),
   with `adb install`. Then go to Haven Settings > Wallpaper. Choose "Haven nature photos" to go back.
 
-- **Your own wallpapers:** copy JPEGs to the TV, and Haven uses them the next time it starts:
-  `adb push photo.jpg /sdcard/Android/data/home.haven.tv/files/wallpapers/`
+- **Your own wallpapers:** Haven Settings > Add your own photos.
+  - *From your phone:* the TV shows an address like `http://192.168.1.50:8765/1234`. Open it on a
+    phone on the same Wi-Fi and choose photos. The page only works while that window is open on
+    the TV, and only with its 4-digit code.
+  - *From a USB drive:* Haven copies JPG, PNG and WebP photos from the drive's folders (up to
+    100 at a time). The first time, the TV asks to allow access to photos.
+  - adb still works too: `adb push photo.jpg /sdcard/Android/data/home.haven.tv/files/wallpapers/`
+  - Choose Wallpaper > My photos to see only yours. "Delete your photos" removes them.
 - **Haven Settings** is the last tile in Apps. It covers focus sounds, the Home button, wallpaper
   brightness and blur, colours from the wallpaper, hidden apps, the account badge letter and
   resetting the layout.
@@ -120,7 +131,7 @@ and reinstalling loses the adb-granted permissions. Set `KS_PASS` to choose its 
 
 ## Tested on
 
-TCL Google TV (Android TV 12). The code checks for each feature before using it, so it should work
+TCL Google TV (Android 14). The code checks for each feature before using it, so it should work
 on other Google TV and Android TV devices (Android 8+), but they haven't been tested.
 Reports are welcome.
 
