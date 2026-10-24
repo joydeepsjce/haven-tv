@@ -94,6 +94,11 @@ final class Store {
         } catch (JSONException ignored) { }
     }
 
+    /** Deletes the layout copy in the system settings (before uninstalling). */
+    void forgetBackup() {
+        writeBackup(null);
+    }
+
     private void writeBackup(JSONObject b) {
         if (!Keeper.canWrite(c)) return;
         try {

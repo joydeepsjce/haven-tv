@@ -106,8 +106,10 @@ twice as fast. It also does everything in Set up Haven in one go.
 
 Turn off Network debugging afterwards if you like; Haven doesn't need it.
 
-**Remove:** uninstall Haven from Settings > Apps, or `sh setup.sh <ip> --remove`
-(`setup.ps1 -Tv <ip> -Remove`). The Home button goes back to the stock launcher.
+**Remove:** Haven Settings > System > **Uninstall Haven**. Haven first undoes what it changed
+outside itself (its layout backup, the animation speed, its Home-button service), then Android
+asks you to confirm. If you cancel, Haven puts everything back. From a computer:
+`sh setup.sh <ip> --remove` (`setup.ps1 -Tv <ip> -Remove`).
 
 ## Permissions
 
@@ -120,6 +122,7 @@ Turn off Network debugging afterwards if you like; Haven doesn't need it.
 | `ACCESS_COARSE_LOCATION` | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
 | `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
 | Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
+| Uninstall (`REQUEST_DELETE_PACKAGES`) | Only for Settings > System > Uninstall Haven, which opens Android's own uninstall confirmation for Haven. |
 | Install apps (`REQUEST_INSTALL_PACKAGES`) | Installs Haven's own updates from GitHub, after checking each one is Haven, newer, and signed with the same key. Android asks you to confirm every update. |
 
 ## Tips

@@ -195,6 +195,7 @@ public class HomeActivity extends Activity {
         loadRecents();
         loadContinue();
         update = Updater.saved(this);
+        undoUninstallIfCancelled();
         settings.refresh(); // statuses may have changed in the TV's settings
         maybeShowSetup();
         bg.execute(() -> {
@@ -1998,6 +1999,8 @@ public class HomeActivity extends Activity {
             store.save();
             Keeper.setAnimations(this, store.fastAnim ? "0.5" : "1.0");
         }));
+        system.add(SettingsPanel.action("Uninstall Haven", "Removes Haven and gives the Home button back to Google TV",
+                () -> "›", this::uninstallHaven));
         out.add(new SettingsPanel.Section(SECTIONS[3], system));
 
         // About
@@ -2033,6 +2036,56 @@ public class HomeActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "This TV doesn't have that setting", Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * Tidies up what Haven changed outside itself (its layout backup in the system settings, the
+     * animation speed, its Home-button service), then asks Android to uninstall it. Android shows
+     * its own confirmation; Haven can't remove itself without it.
+     */
+    private void uninstallHaven() {
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Uninstall Haven?")
+                .setMessage("The Home button goes back to the Google TV home screen. Your Haven layout, photos and "
+                        + "settings are deleted. Android asks you to confirm next.")
+                .setPositiveButton("Uninstall", (d, w) -> {
+                    // Remembered so a cancelled uninstall can be undone, even after a restart.
+                    getSharedPreferences("haven", MODE_PRIVATE).edit()
+                            .putBoolean("uninstallPending", true)
+                            .putBoolean("uninstallHomeKey", store.homeKey)
+                            .putBoolean("uninstallFastAnim", store.fastAnim)
+                            .commit();
+                    // Turned off first, or Haven's keeper would put them straight back.
+                    store.homeKey = false;
+                    store.fastAnim = false;
+                    store.save();
+                    if (Keeper.canWrite(this)) {
+                        store.forgetBackup();
+                        Keeper.setAnimations(this, "1.0");
+                        Keeper.disableService(this);
+                    }
+                    try {
+                        startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + getPackageName()))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    } catch (Exception e) {
+                        openTvSetting(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                "Choose Uninstall on this screen");
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Haven is still installed after its uninstall prompt: put its settings and Home button back. */
+    private void undoUninstallIfCancelled() {
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        if (!prefs.getBoolean("uninstallPending", false)) return;
+        store.homeKey = prefs.getBoolean("uninstallHomeKey", true);
+        store.fastAnim = prefs.getBoolean("uninstallFastAnim", true);
+        prefs.edit().remove("uninstallPending").commit();
+        store.save();
+        if (store.fastAnim) Keeper.setAnimations(this, "0.5");
+        if (store.homeKey) Keeper.ensure(this, true, () -> settings.refresh());
     }
 
     private void checkForUpdates() {

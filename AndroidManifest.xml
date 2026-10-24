@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="home.haven.tv"
-    android:versionCode="19"
-    android:versionName="4.3">
+    android:versionCode="20"
+    android:versionName="4.4">
 
     <!-- Only used to fetch the current temperature from api.open-meteo.com. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- Installing Haven's own updates from GitHub; Android asks you to confirm each one. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Haven Settings > System > Uninstall Haven: shows Android's uninstall confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
