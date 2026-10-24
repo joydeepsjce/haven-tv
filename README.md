@@ -16,6 +16,8 @@ mostly wallpapers.
 | *All apps* | *Edit mode: hold OK, then move tiles with the arrows* |
 | ![Tile options](docs/options.jpg) | ![Wallpaper plugin](docs/plugin.jpg) |
 | *Tile options: dock, folders, rename, hide* | *A Projectivy wallpaper plugin (Photo of the Day)* |
+| ![Settings](docs/settings.jpg) | ![Set up Haven](docs/setup.jpg) |
+| *Haven Settings* | *Set up Haven: everything from the remote, no computer* |
 
 ## Features
 
@@ -36,8 +38,8 @@ mostly wallpapers.
   The focus colour comes from the photo.
 - **Movie & show art**: a wallpaper made from the artwork of your Continue watching and Top picks
   rows, with no API key needed. When you move to a card, the wallpaper changes to that title.
-- **Your own photos**, added without adb: upload them from a phone's browser (Haven shows a short
-  address on the TV), or copy them from a USB drive. Show them with Haven's photos or on their own.
+- **Your own photos**, added without adb: scan a QR code on the TV with your phone and pick
+  photos, or copy them from a USB drive. Show them with Haven's photos or on their own.
 - **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins, such as
   Bing photo of the day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
   Install a plugin, then choose it in Haven Settings > Wallpaper. Its settings open from Haven
@@ -53,65 +55,89 @@ mostly wallpapers.
 - **Survives "cleaner" apps** (e.g. TCL's Safety Guard): it keeps a backup of your layout, starts
   its Home-button service again if something switches it off, and gets past boot managers that
   block third-party apps from starting at boot.
+- **Settings** in two panels (sections on the left, options on the right). Left/Right changes a
+  value in place.
+- **Updates itself**: Haven checks GitHub for new versions and installs them when you say so.
+  Android asks you to confirm each one; nothing installs silently.
 - Up/Down moves exactly one row and Left/Right stays inside the row, so the remote never jumps
   somewhere unexpected.
 
 ## Install
 
-You need a computer with [adb](https://developer.android.com/tools/releases/platform-tools) and
-the TV and computer on the same network.
+### Without a computer
+
+1. On the TV, install **Downloader** (by AFTVnews) from the Play Store.
+2. Open Downloader and enter this address:
+   `https://github.com/joydeepsjce/haven-tv/releases/latest/download/haven.apk`
+3. When Android asks, allow Downloader to install apps, then press **Install**.
+4. Open **Haven** from your apps. It opens **Set up Haven**. Turn on each item with the remote:
+   - **Home button**: opens Settings > Accessibility. Choose *Haven Home button* and turn it on.
+   - **Continue watching and Top picks**, and **Weather**: Android asks once. Choose Allow.
+   - **Recent apps**: opens Usage access. Choose Haven and allow it.
+   - **Install updates**: lets Haven install its own updates. You confirm each one.
+5. Press Home.
+
+If Android says the Home-button setting is restricted (some TVs do this for apps that didn't
+come from the Play Store), go to Settings > Apps > Haven, allow restricted settings, and try
+again.
+
+**Updating:** Haven Settings > About > Check for updates. Haven also checks by itself every
+12 hours and tells you when there's a new version.
+
+### With a computer (optional extras)
+
+A one-time adb setup adds two things the remote can't: Haven turns its Home-button service back
+on if a "cleaner" app (such as TCL's Safety Guard) switches it off, and system animations run
+twice as fast. It also does everything in Set up Haven in one go.
 
 1. On the TV, turn on **Developer options**: Settings > System > About, then press OK on
    *Android TV OS build* seven times. Then turn on **USB debugging** and **Network debugging**
    under Settings > System > Developer options. Note the TV's IP address (Settings > Network).
-2. Get `haven-4.2.apk` from [Releases](../../releases), or build it yourself (below).
-3. Run the setup script. The first time, the TV asks you to allow debugging from your computer.
+2. Run the setup script from this repo. Include `haven.apk` to install or update Haven too.
+   The first time, the TV asks you to allow debugging from your computer.
 
    ```sh
-   sh setup.sh 192.168.1.50 haven-4.2.apk
+   sh setup.sh 192.168.1.50 haven.apk
    ```
    On Windows:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File setup.ps1 -Tv 192.168.1.50 -Apk haven-4.2.apk
+   powershell -ExecutionPolicy Bypass -File setup.ps1 -Tv 192.168.1.50 -Apk haven.apk
    ```
-4. Press Home on the remote.
 
-The script grants permissions that only adb can grant (see below). Run it again with no APK if
-something ever resets Haven. Turn off Network debugging afterwards if you like; Haven doesn't
-need it.
+Turn off Network debugging afterwards if you like; Haven doesn't need it.
 
-**Remove:** `sh setup.sh <ip> --remove` (or `setup.ps1 -Tv <ip> -Remove`) uninstalls Haven and
-gives the Home button back to the stock launcher.
+**Remove:** uninstall Haven from Settings > Apps, or `sh setup.sh <ip> --remove`
+(`setup.ps1 -Tv <ip> -Remove`). The Home button goes back to the stock launcher.
 
 ## Permissions
 
 | Permission | Why |
 |---|---|
 | Accessibility service "Haven Home button" | Opens Haven when you press Home. It only listens for the Home key and for the Google TV home screen opening. It can't read what's on screen and logs nothing. |
-| `READ_TV_LISTINGS` (adb) | Reads the Continue watching and channel rows your apps publish, as the stock launcher does. |
-| `WRITE_SECURE_SETTINGS` (adb) | Starts the Home-button service again if something turns it off, sets animation speed to 0.5×, and keeps a backup of the layout (which apps are where, nothing personal). |
-| Usage access (adb) | Lists recent apps in the Recent row, including ones not opened from Haven. Optional. |
-| `ACCESS_COARSE_LOCATION` (adb) | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
+| `READ_TV_LISTINGS` | Reads the Continue watching and channel rows your apps publish, as the stock launcher does. |
+| `WRITE_SECURE_SETTINGS` (computer setup only) | Starts the Home-button service again if something turns it off, sets animation speed to 0.5×, and keeps a backup of the layout (which apps are where, nothing personal). |
+| Usage access | Lists recent apps in the Recent row, including ones not opened from Haven. Optional. |
+| `ACCESS_COARSE_LOCATION` | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
 | `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
 | Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
+| Install apps (`REQUEST_INSTALL_PACKAGES`) | Installs Haven's own updates from GitHub, after checking each one is Haven, newer, and signed with the same key. Android asks you to confirm every update. |
 
 ## Tips
 
 - **Wallpaper plugins:** install a Projectivy wallpaper plugin APK, for example
   [Photo of the Day](https://github.com/spocky/projectivy-plugin-wallpaper-bingwallpaper/releases),
-  with `adb install`. Then go to Haven Settings > Wallpaper. Choose "Haven nature photos" to go back.
+  with Downloader or `adb install`. Then Haven Settings > Wallpaper, and use Left/Right to pick it.
 
 - **Your own wallpapers:** Haven Settings > Add your own photos.
-  - *From your phone:* the TV shows an address like `http://192.168.1.50:8765/1234`. Open it on a
-    phone on the same Wi-Fi and choose photos. The page only works while that window is open on
-    the TV, and only with its 4-digit code.
+  - *From your phone:* scan the QR code on the TV with your phone's camera (same Wi-Fi) and
+    choose photos. The page only works while that window is open on the TV, and only with its
+    4-digit code. The address is shown small under the code if your phone can't scan it.
   - *From a USB drive:* Haven copies JPG, PNG and WebP photos from the drive's folders (up to
     100 at a time). The first time, the TV asks to allow access to photos.
   - adb still works too: `adb push photo.jpg /sdcard/Android/data/home.haven.tv/files/wallpapers/`
   - Choose Wallpaper > My photos to see only yours. "Delete your photos" removes them.
-- **Haven Settings** is the last tile in Apps. It covers focus sounds, the Home button, wallpaper
-  brightness and blur, colours from the wallpaper, hidden apps, the account badge letter and
-  resetting the layout.
+- **Haven Settings** is the last tile in Apps: Wallpaper, Home screen, Set up Haven, System and
+  About. Back returns to the section list, then closes.
 - **Screensaver:** Settings > System > Ambient mode > Screensaver > Haven nature photos.
 - Keys sent over adb skip the accessibility service, so `adb shell input keyevent HOME` still
   shows the stock launcher briefly. The real remote doesn't.

@@ -9,6 +9,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
@@ -31,6 +33,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextClock;
@@ -117,6 +120,10 @@ public class HomeActivity extends Activity {
     private long lastWeather = -WEATHER_EVERY_MS, lastKeyAt;
     private int photoColor = Color.WHITE;
     private boolean resumed, navigating, userMoved, pluginSettingsOpen;
+    private Updater.Release update;
+    private SettingsPanel settings;
+    private static final int REQ_LISTINGS = 43, REQ_LOCATION = 44;
+    private static final String[] SECTIONS = {"Wallpaper", "Home screen", "Set up Haven", "System", "About"};
     private final ExecutorService img = Executors.newFixedThreadPool(2);
     // Blur while the remote is in use; the photo goes sharp again after 10 seconds without a press.
     private final Runnable idle = () -> {
@@ -187,6 +194,20 @@ public class HomeActivity extends Activity {
         ui.postDelayed(weatherTick, Math.max(0, WEATHER_EVERY_MS - stale));
         loadRecents();
         loadContinue();
+        update = Updater.saved(this);
+        settings.refresh(); // statuses may have changed in the TV's settings
+        maybeShowSetup();
+        bg.execute(() -> {
+            Updater.Release r = Updater.checkIfDue(this);
+            if (r != null) ui.post(() -> {
+                update = r;
+                android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+                if (!r.version.equals(prefs.getString("updateNoticed", ""))) {
+                    prefs.edit().putString("updateNoticed", r.version).apply();
+                    Toast.makeText(this, "Haven " + r.version + " is available. Install it from Haven Settings.", Toast.LENGTH_LONG).show();
+                }
+            });
+        });
         // Top movies/shows rows were replaced by Continue watching (Watch Next from your apps).
     }
 
@@ -213,6 +234,7 @@ public class HomeActivity extends Activity {
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        settings.close();
         if (editKey != null) exitEdit();
         if (overlayId != null) closeFolder();
         if (searchOpen) closeSearch();
@@ -220,7 +242,8 @@ public class HomeActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (editKey != null) exitEdit();
+        if (settings.isOpen()) settings.back();
+        else if (editKey != null) exitEdit();
         else if (searchOpen && searchField.hasFocus() && !searchField.getText().toString().trim().isEmpty()) {
             // First Back after typing leaves the text box for the results, like Apple TV.
             hideKeyboard();
@@ -249,6 +272,10 @@ public class HomeActivity extends Activity {
             }
             ui.removeCallbacks(idle);
             ui.postDelayed(idle, 10_000);
+            if (settings.isOpen()) {
+                if (k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_HOME) return super.dispatchKeyEvent(e);
+                return settings.handleKey(e) || super.dispatchKeyEvent(e);
+            }
             if (editKey == null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
                     && keepInRow(k == KeyEvent.KEYCODE_DPAD_RIGHT)) return true;
             if (editKey == null && !searchOpen && overlayId == null
@@ -515,6 +542,8 @@ public class HomeActivity extends Activity {
         root.addView(hint, hlp);
 
         buildSearchOverlay();
+        settings = new SettingsPanel(this, this::settingsModel, this::onSettingsClosed);
+        root.addView(settings.view, match());
         setContentView(root);
     }
 
@@ -1787,132 +1816,290 @@ public class HomeActivity extends Activity {
     // ---------------------------------------------------------------- Haven settings
 
     private void showHavenSettings() {
-        List<String> names = new ArrayList<>();
-        List<Runnable> acts = new ArrayList<>();
-        names.add("Focus sounds: " + (store.sounds ? "On" : "Off"));
-        acts.add(() -> {
-            store.sounds = !store.sounds;
-            store.save();
-            showHavenSettings();
-        });
-        names.add("Home button opens Haven: " + (store.homeKey ? "On" : "Off"));
-        acts.add(() -> {
-            store.homeKey = !store.homeKey;
-            store.save();
-            if (store.homeKey) Keeper.ensure(this, true, () -> { });
-            else Keeper.disableService(this);
-            showHavenSettings();
-        });
-        names.add("Fast animations: " + (store.fastAnim ? "On" : "Off"));
-        acts.add(() -> {
-            store.fastAnim = !store.fastAnim;
-            store.save();
-            Keeper.setAnimations(this, store.fastAnim ? "0.5" : "1.0");
-            showHavenSettings();
-        });
-        names.add("Colours from wallpaper: " + (store.dynColor ? "On" : "Off"));
-        acts.add(() -> {
-            store.dynColor = !store.dynColor;
-            store.save();
-            Ui.setAccent(store.dynColor ? Ui.accentFrom(photoColor) : Color.WHITE);
-            showHavenSettings();
-        });
-        names.add("Wallpaper brightness: " + store.brightness + "%");
-        acts.add(() -> {
-            store.brightness = store.brightness <= 55 ? 100 : store.brightness - 15;
-            store.save();
-            shade.animate().alpha((100 - store.brightness) / 100f).setDuration(250).start();
-            showHavenSettings();
-        });
-        Plugins.Info wallPlugin = slideshow.plugin();
-        names.add("Wallpaper: " + slideshow.sourceName() + "…");
-        acts.add(this::chooseWallpaper);
-        names.add("Add your own photos…");
-        acts.add(this::addPhotos);
+        showHavenSettings(0);
+    }
+
+    private View beforeSettings;
+
+    private void showHavenSettings(int section) {
+        beforeSettings = getCurrentFocus();
+        animateBlur(1f);
+        // Only the blurred wallpaper stays behind the panels.
+        for (View v : new View[]{scroller, topBar, clockBox}) v.animate().alpha(0f).setDuration(180).start();
+        settings.open(section);
+    }
+
+    private void onSettingsClosed() {
+        float f = scrollFraction();
+        scroller.animate().alpha(1f).setDuration(180).start();
+        topBar.animate().alpha(1f - f).setDuration(180).start();
+        clockBox.animate().alpha(1f - f).setDuration(180).start();
+        updateBlur(true);
+        if (beforeSettings != null && beforeSettings.isAttachedToWindow()) beforeSettings.requestFocus();
+        beforeSettings = null;
+    }
+
+    /** First time Haven runs without its basics (Home button, Continue watching), it opens Set up. */
+    private void maybeShowSetup() {
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        if (prefs.getBoolean("setupShown", false) || settings.isOpen()) return;
+        if (Keeper.serviceRunning(this) && has(LISTINGS)) return;
+        prefs.edit().putBoolean("setupShown", true).apply();
+        ui.postDelayed(() -> { if (resumed) showHavenSettings(2); }, 1200);
+    }
+
+    private static final String LISTINGS = "android.permission.READ_TV_LISTINGS";
+
+    private boolean has(String permission) {
+        return checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    private List<SettingsPanel.Section> settingsModel() {
+        List<SettingsPanel.Section> out = new ArrayList<>();
+
+        // Wallpaper
+        List<SettingsPanel.Row> wall = new ArrayList<>();
+        List<String[]> sources = wallSources();
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        String sourceId = prefs.getString(Slideshow.SOURCE_KEY, "");
+        int at = 0;
+        for (int i = 0; i < sources.size(); i++) if (sources.get(i)[0].equals(sourceId)) at = i;
+        int currentSource = at;
+        wall.add(SettingsPanel.choice("Wallpaper", "Haven's photos, yours, movie art or a Projectivy plugin",
+                () -> sources.get(currentSource)[1], dir -> {
+                    int n = (currentSource + dir + sources.size()) % sources.size();
+                    prefs.edit().putString(Slideshow.SOURCE_KEY, sources.get(n)[0]).commit();
+                    slideshow.reload();
+                }));
+        Plugins.Info wallPlugin = sourceId.startsWith("haven:") ? null : Plugins.byId(this, sourceId);
         if (wallPlugin != null && wallPlugin.settingsIntent() != null) {
-            names.add(wallPlugin.name + " settings…");
-            acts.add(() -> {
+            wall.add(SettingsPanel.action(wallPlugin.name + " settings", "The plugin's own options", () -> "›", () -> {
                 try {
                     startActivity(wallPlugin.settingsIntent());
                     pluginSettingsOpen = true;
                 } catch (Exception ex) {
                     Toast.makeText(this, "Couldn't open the plugin's settings", Toast.LENGTH_SHORT).show();
                 }
-            });
+            }));
         }
-        names.add("Background blur: " + new String[]{"Off", "Low", "Medium", "High"}[store.blurLevel]);
-        acts.add(() -> {
-            store.blurLevel = (store.blurLevel + 1) % 4;
+        int mine = Slideshow.myPhotoCount(this);
+        wall.add(SettingsPanel.action("Add your own photos", "From your phone (scan a QR code) or a USB drive",
+                () -> mine == 0 ? "›" : mine + (mine == 1 ? " photo  ›" : " photos  ›"), this::addPhotos));
+        wall.add(SettingsPanel.choice("Brightness", "Darkens the photo behind the rows", () -> store.brightness + "%", dir -> {
+            store.brightness = Math.max(55, Math.min(100, store.brightness + dir * 15));
             store.save();
-            updateBlur(true);
-            showHavenSettings();
-        });
-        names.add("Account badge: " + (store.accountLetter.isEmpty() ? "Icon" : store.accountLetter) + "…");
-        acts.add(() -> askName("Letter for the account badge (empty for an icon)", "", false, name -> {
-            String l = name.trim();
-            store.accountLetter = l.isEmpty() ? "" : l.substring(0, 1).toUpperCase();
-            store.save();
-            recreate();
+            shade.animate().alpha((100 - store.brightness) / 100f).setDuration(250).start();
         }));
-        if (!Keeper.canWrite(this)) {
-            names.add("Setup incomplete: run the setup script from your computer");
-            acts.add(() -> { });
-        }
-        if (!store.hidden.isEmpty()) {
-            names.add("Hidden apps (" + store.hidden.size() + ")…");
-            acts.add(this::showHidden);
-        }
-        names.add("Edit home screen");
-        acts.add(() -> {
+        String[] blurs = {"Off", "Low", "Medium", "High"};
+        wall.add(SettingsPanel.choice("Background blur", "While you use the remote", () -> blurs[store.blurLevel], dir -> {
+            store.blurLevel = Math.max(0, Math.min(3, store.blurLevel + dir));
+            store.save();
+        }));
+        wall.add(SettingsPanel.toggle("Colours from wallpaper", "The focus ring takes the photo's colour", () -> store.dynColor, () -> {
+            store.dynColor = !store.dynColor;
+            store.save();
+            Ui.setAccent(store.dynColor ? Ui.accentFrom(photoColor) : Color.WHITE);
+        }));
+        out.add(new SettingsPanel.Section(SECTIONS[0], wall));
+
+        // Home screen
+        List<SettingsPanel.Row> home = new ArrayList<>();
+        home.add(SettingsPanel.action("Edit home screen", "Move, group, rename or hide apps", () -> "›", () -> {
+            settings.close();
             View first = firstTile(dockRow);
             if (first != null) {
                 first.requestFocus();
                 enterEdit((String) first.getTag(), first);
             }
+        }));
+        if (!store.hidden.isEmpty()) {
+            home.add(SettingsPanel.action("Hidden apps", "Show an app you hid", () -> store.hidden.size() + "  ›", this::showHidden));
+        }
+        home.add(SettingsPanel.action("Account badge", "Google hides your name from other apps, so pick a letter",
+                () -> store.accountLetter.isEmpty() ? "Icon" : store.accountLetter,
+                () -> askName("Letter for the account badge (empty for an icon)", "", false, name -> {
+                    String l = name.trim();
+                    store.accountLetter = l.isEmpty() ? "" : l.substring(0, 1).toUpperCase();
+                    store.save();
+                    recreate();
+                })));
+        home.add(SettingsPanel.toggle("Focus sounds", "A soft tick as you move", () -> store.sounds, () -> {
+            store.sounds = !store.sounds;
+            store.save();
+        }));
+        home.add(SettingsPanel.action("Reset layout", "Original dock and order, no folders, nothing hidden", null,
+                () -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Reset layout?")
+                        .setMessage("Puts the dock and apps back to the original layout, removes folders and shows hidden apps.")
+                        .setPositiveButton("Reset", (d, w) -> {
+                            store.reset();
+                            applyEntries(new LinkedHashMap<>(entries));
+                            settings.refresh();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show()));
+        out.add(new SettingsPanel.Section(SECTIONS[1], home));
+
+        // Set up Haven: everything that used to need a computer, from the remote
+        List<SettingsPanel.Row> setup = new ArrayList<>();
+        setup.add(SettingsPanel.note("Haven works without a computer. Turn these on with the remote; each one opens the TV's own setting or asks once."));
+        setup.add(SettingsPanel.action("Home button", "Settings > Accessibility > Haven Home button > On",
+                () -> Keeper.serviceRunning(this) ? "On" : "Turn on  ›", () -> {
+                    if (Keeper.serviceRunning(this)) return;
+                    store.homeKey = true;
+                    store.save();
+                    if (Keeper.canWrite(this)) Keeper.ensure(this, true, () -> settings.refresh());
+                    else openTvSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                            "Choose Haven Home button and turn it on. If it says the setting is restricted: Settings > Apps > Haven > allow restricted settings.");
+                }));
+        setup.add(SettingsPanel.action("Continue watching and Top picks", "Lets Haven read your apps' rows, like the TV's own home screen",
+                () -> has(LISTINGS) ? "Allowed" : "Allow  ›", () -> {
+                    if (!has(LISTINGS)) requestPermissions(new String[]{LISTINGS}, REQ_LISTINGS);
+                }));
+        setup.add(SettingsPanel.action("Weather for where you are", "Approximate location, rounded to about 1 km",
+                () -> has(android.Manifest.permission.ACCESS_COARSE_LOCATION) ? "Allowed" : "Allow  ›", () -> {
+                    if (!has(android.Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                        requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                    }
+                }));
+        setup.add(SettingsPanel.action("Recent apps", "Usage access, so Recent shows apps opened from anywhere",
+                () -> Apps.hasUsageAccess(this) ? "Allowed" : "Allow  ›", () -> {
+                    if (!Apps.hasUsageAccess(this)) openTvSetting(Settings.ACTION_USAGE_ACCESS_SETTINGS, "Choose Haven and allow usage access");
+                }));
+        setup.add(SettingsPanel.action("Install updates", "Lets Haven install its own updates from GitHub (you confirm each one)",
+                () -> getPackageManager().canRequestPackageInstalls() ? "Allowed" : "Allow  ›", () -> {
+                    if (!getPackageManager().canRequestPackageInstalls()) Updater.canInstall(this);
+                }));
+        setup.add(SettingsPanel.action("Extras from a computer", "Optional: brings the Home button back after cleaner apps and speeds up animations. Run the setup script once.",
+                () -> Keeper.canWrite(this) ? "Done" : "Optional", () -> {
+                    if (!Keeper.canWrite(this)) {
+                        Toast.makeText(this, "See github.com/joydeepsjce/haven-tv: sh setup.sh <TV IP>", Toast.LENGTH_LONG).show();
+                    }
+                }));
+        out.add(new SettingsPanel.Section(SECTIONS[2], setup));
+
+        // System
+        List<SettingsPanel.Row> system = new ArrayList<>();
+        system.add(SettingsPanel.toggle("Home button opens Haven", "Instead of the Google TV home screen", () -> store.homeKey && Keeper.serviceRunning(this), () -> {
+            store.homeKey = !(store.homeKey && Keeper.serviceRunning(this));
+            store.save();
+            if (Keeper.canWrite(this)) {
+                if (store.homeKey) Keeper.ensure(this, true, () -> settings.refresh());
+                else Keeper.disableService(this);
+            } else {
+                openTvSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS, store.homeKey
+                        ? "Choose Haven Home button and turn it on" : "Choose Haven Home button and turn it off");
+            }
+        }));
+        system.add(SettingsPanel.toggle("Fast animations", Keeper.canWrite(this) ? "Twice as quick, across the whole TV"
+                : "Needs the computer setup (Set up Haven > Extras)", () -> store.fastAnim && Keeper.canWrite(this), () -> {
+            if (!Keeper.canWrite(this)) return;
+            store.fastAnim = !store.fastAnim;
+            store.save();
+            Keeper.setAnimations(this, store.fastAnim ? "0.5" : "1.0");
+        }));
+        out.add(new SettingsPanel.Section(SECTIONS[3], system));
+
+        // About
+        List<SettingsPanel.Row> about = new ArrayList<>();
+        about.add(SettingsPanel.action("Version", null, () -> "Haven " + Updater.installedVersion(this), () -> { }));
+        if (update != null) {
+            Updater.Release r = update;
+            about.add(SettingsPanel.action("Update to Haven " + r.version, "Downloads from GitHub; Android asks you to confirm",
+                    () -> "Install  ›", () -> offerUpdate(r)));
+        }
+        about.add(SettingsPanel.action("Check for updates", null, () -> "›", this::checkForUpdates));
+        about.add(SettingsPanel.note("Haven is open source (MIT): github.com/joydeepsjce/haven-tv\nPhoto credits and licences are listed there."));
+        out.add(new SettingsPanel.Section(SECTIONS[4], about));
+        return out;
+    }
+
+    /** {id, name} for each wallpaper source: Haven's photos, yours, movie art, then plugins. */
+    private List<String[]> wallSources() {
+        List<String[]> out = new ArrayList<>();
+        int mine = Slideshow.myPhotoCount(this);
+        out.add(new String[]{"", mine > 0 ? "Haven's and yours" : "Haven nature photos"});
+        if (mine > 0) out.add(new String[]{Slideshow.MINE, "My photos"});
+        out.add(new String[]{Slideshow.MOVIES, "Movie & show art"});
+        for (Plugins.Info i : Plugins.find(this)) out.add(new String[]{i.id(), i.name});
+        return out;
+    }
+
+    /** Opens one of the TV's own settings screens with a hint about what to do there. */
+    private void openTvSetting(String action, String hint) {
+        try {
+            startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            Toast.makeText(this, hint, Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "This TV doesn't have that setting", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void checkForUpdates() {
+        Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show();
+        bg.execute(() -> {
+            Updater.Release r = null;
+            String error = null;
+            try {
+                r = Updater.check(this);
+            } catch (Exception e) {
+                error = "Couldn't reach GitHub. Check the TV's internet connection.";
+            }
+            Updater.Release found = r;
+            String err = error;
+            ui.post(() -> {
+                if (err != null) Toast.makeText(this, err, Toast.LENGTH_LONG).show();
+                else if (found == null) Toast.makeText(this, "Haven is up to date", Toast.LENGTH_SHORT).show();
+                else {
+                    update = found;
+                    settings.refresh();
+                    offerUpdate(found);
+                }
+            });
         });
-        names.add("Reset home screen layout…");
-        acts.add(() -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Reset layout?")
-                .setMessage("Puts the dock and apps back to the original layout, removes folders and shows hidden apps.")
-                .setPositiveButton("Reset", (d, w) -> {
-                    store.reset();
-                    applyEntries(new LinkedHashMap<>(entries));
-                })
-                .setNegativeButton("Cancel", null)
-                .show());
+    }
+
+    // ---------------------------------------------------------------- updates
+
+    private void offerUpdate(Updater.Release r) {
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Haven")
-                .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
+                .setTitle("Haven " + r.version + " is available")
+                .setMessage("You have " + Updater.installedVersion(this) + ". Haven downloads the update from GitHub, "
+                        + "then Android asks you to confirm. Your layout and settings stay.")
+                .setPositiveButton("Install", (d, w) -> installUpdate(r))
+                .setNegativeButton("Later", null)
                 .show();
     }
 
-    /** Haven's photos, your photos, your apps' movie and show art, or a Projectivy wallpaper plugin. */
-    private void chooseWallpaper() {
+    private void installUpdate(Updater.Release r) {
+        if (!Updater.canInstall(this)) return;
+        AlertDialog progress = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Updating Haven")
+                .setMessage("Downloading…")
+                .setCancelable(false)
+                .show();
         bg.execute(() -> {
-            List<Plugins.Info> found = Plugins.find(this);
-            int mine = Slideshow.myPhotoCount(this);
+            String error;
+            try {
+                java.io.File apk = Updater.download(this, r, pc -> ui.post(() -> progress.setMessage("Downloading… " + pc + "%")));
+                error = Updater.verify(this, apk);
+                if (error == null) {
+                    ui.post(() -> progress.setMessage("Installing…"));
+                    Updater.install(this, apk);
+                }
+            } catch (Exception e) {
+                error = "The download didn't finish. Check the TV's internet connection and try again.";
+            }
+            String err = error;
             ui.post(() -> {
-                List<String> names = new ArrayList<>();
-                List<String> ids = new ArrayList<>();
-                names.add("Haven nature photos" + (mine > 0 ? " and yours" : ""));
-                ids.add("");
-                if (mine > 0) {
-                    names.add("My photos (" + mine + ")");
-                    ids.add(Slideshow.MINE);
+                progress.dismiss();
+                if (err != null) {
+                    new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle("Couldn't update")
+                            .setMessage(err)
+                            .setPositiveButton("OK", null)
+                            .show();
                 }
-                names.add("Movie & show art (from your apps)");
-                ids.add(Slideshow.MOVIES);
-                for (Plugins.Info i : found) {
-                    names.add(i.name);
-                    ids.add(i.id());
-                }
-                new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle("Wallpaper")
-                        .setItems(names.toArray(new String[0]), (d, which) -> {
-                            getSharedPreferences("haven", MODE_PRIVATE).edit().putString(Slideshow.SOURCE_KEY, ids.get(which)).apply();
-                            slideshow.reload();
-                        })
-                        .show();
             });
         });
     }
@@ -1947,38 +2134,75 @@ public class HomeActivity extends Activity {
                 .show();
     }
 
+    /** A QR code to scan with the phone's camera; the address is only shown small, as a fallback. */
     private void uploadFromPhone() {
-        AlertDialog[] dialog = new AlertDialog[1];
+        TextView status = new TextView(this);
         int[] added = {0};
         PhotoImport.Upload up = PhotoImport.startUpload(this, n -> {
             added[0] = n;
-            if (dialog[0] != null) dialog[0].setMessage(uploadMessage(null, n));
+            status.setText(n + (n == 1 ? " photo added" : " photos added"));
         });
         if (up == null) {
             Toast.makeText(this, "The TV isn't connected to a network", Toast.LENGTH_LONG).show();
             return;
         }
-        dialog[0] = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        ImageView qr = new ImageView(this);
+        qr.setImageBitmap(qrBitmap(up.url));
+        qr.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
+        LinearLayout text = column();
+        TextView how = new TextView(this);
+        how.setTextSize(17);
+        how.setTextColor(Color.WHITE);
+        how.setText("Scan with your phone's camera, then choose photos. They appear on the TV straight away.");
+        TextView note = new TextView(this);
+        note.setTextSize(14);
+        note.setTextColor(0xFFB8BCC4);
+        note.setText("Your phone needs to be on the same Wi-Fi as the TV. To see only your photos, choose Wallpaper > My photos.");
+        status.setTextSize(17);
+        status.setTextColor(Color.WHITE);
+        status.setText("Waiting for photos…");
+        TextView address = new TextView(this);
+        address.setTextSize(12);
+        address.setTextColor(0xFF80858E);
+        address.setText(up.url);
+        text.addView(how);
+        text.addView(note, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(12); }});
+        text.addView(status, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(20); }});
+        text.addView(address, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(20); }});
+
+        LinearLayout body = new LinearLayout(this);
+        body.setGravity(Gravity.CENTER_VERTICAL);
+        body.setPadding(dp(24), dp(16), dp(24), 0);
+        body.addView(qr, new LinearLayout.LayoutParams(dp(180), dp(180)));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        tlp.leftMargin = dp(24);
+        body.addView(text, tlp);
+
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Add photos from your phone")
-                .setMessage(uploadMessage(up.url, 0))
+                .setView(body)
                 .setPositiveButton("Done", null)
                 .setOnDismissListener(d -> {
                     up.stop();
                     if (added[0] > 0) slideshow.reload();
                 })
                 .show();
-        dialog[0].setMessage(uploadMessage(up.url, 0));
-        uploadUrl = up.url;
     }
 
-    private String uploadUrl = "";
-
-    private String uploadMessage(String url, int added) {
-        if (url != null) uploadUrl = url;
-        return "On a phone or computer on the same Wi-Fi, open this address in the browser:\n\n"
-                + uploadUrl + "\n\nThen choose photos. The page works while this window is open.\n\n"
-                + (added == 0 ? "Waiting for photos…" : added + (added == 1 ? " photo added" : " photos added"))
-                + "\n\nTo see only yours: Wallpaper > My photos.";
+    /** Black modules on white with the standard 4-module quiet zone, drawn without smoothing. */
+    private static Bitmap qrBitmap(String text) {
+        QrCode q = QrCode.encode(text);
+        int scale = 8, side = (q.size + 8) * scale;
+        Bitmap b = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888);
+        b.eraseColor(Color.WHITE);
+        Canvas c = new Canvas(b);
+        android.graphics.Paint p = new android.graphics.Paint();
+        p.setColor(Color.BLACK);
+        for (int y = 0; y < q.size; y++) for (int x = 0; x < q.size; x++) {
+            if (q.dark(x, y)) c.drawRect((x + 4) * scale, (y + 4) * scale, (x + 5) * scale, (y + 5) * scale, p);
+        }
+        return b;
     }
 
     private void importFromUsb() {
@@ -2005,6 +2229,16 @@ public class HomeActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
+        if (code == REQ_LISTINGS) {
+            loadContinue();
+            settings.refresh();
+            return;
+        }
+        if (code == REQ_LOCATION) {
+            refreshWeather();
+            settings.refresh();
+            return;
+        }
         if (code != REQ_USB) return;
         if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) importFromUsb();
         else Toast.makeText(this, "Haven needs access to photos to read the USB drive", Toast.LENGTH_LONG).show();

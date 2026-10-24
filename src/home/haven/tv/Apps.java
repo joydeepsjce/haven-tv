@@ -97,10 +97,7 @@ final class Apps {
      */
     static List<String> recentPackages(Context c, List<String> fallback) {
         List<String> out = new ArrayList<>();
-        AppOpsManager ops = c.getSystemService(AppOpsManager.class);
-        boolean access = ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(), c.getPackageName()) == AppOpsManager.MODE_ALLOWED;
-        if (access) {
+        if (hasUsageAccess(c)) {
             long now = System.currentTimeMillis();
             UsageEvents events = c.getSystemService(UsageStatsManager.class)
                     .queryEvents(now - 7L * 24 * 3600 * 1000, now);
@@ -120,6 +117,13 @@ final class Apps {
         out.removeAll(Arrays.asList("com.google.android.apps.tv.launcherx",
                 "com.google.android.tungsten.setupwraith", "com.google.android.katniss", "com.android.systemui"));
         return out;
+    }
+
+    /** Usage access (Settings > Apps > Special app access), for the Recent row. */
+    static boolean hasUsageAccess(Context c) {
+        AppOpsManager ops = c.getSystemService(AppOpsManager.class);
+        return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(), c.getPackageName()) == AppOpsManager.MODE_ALLOWED;
     }
 
     private static void addActivities(Context c, PackageManager pm, String category, List<Entry> out, Map<String, Boolean> seen) {

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="home.haven.tv"
-    android:versionCode="18"
-    android:versionName="4.2">
+    android:versionCode="19"
+    android:versionName="4.3">
 
     <!-- Only used to fetch the current temperature from api.open-meteo.com. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -17,6 +17,8 @@
     <!-- Only to copy photos from a USB drive when you choose Add your own photos > From a USB drive. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Installing Haven's own updates from GitHub; Android asks you to confirm each one. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
@@ -89,6 +91,10 @@
                 <action android:name="android.media.tv.TvInputService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".Updater$InstallReceiver"
+            android:exported="false" />
 
         <service
             android:name=".KeeperJob"
