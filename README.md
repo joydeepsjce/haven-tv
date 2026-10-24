@@ -55,7 +55,7 @@ mostly wallpapers.
 - **Survives "cleaner" apps** (e.g. TCL's Safety Guard): it keeps a backup of your layout, starts
   its Home-button service again if something switches it off, and gets past boot managers that
   block third-party apps from starting at boot.
-- **Glass look**, inspired by Apple's Liquid Glass: the top bar, tiles, cards and Settings get a
+- **Glass look**, inspired by Apple's Liquid Glass: the top bar, tiles, cards, Settings and menus get a
   frosted fill that shows the blurred wallpaper behind, a light-catching rim and a soft sheen.
 - **Settings** in two panels (sections on the left, options on the right). Left/Right changes a
   value in place.

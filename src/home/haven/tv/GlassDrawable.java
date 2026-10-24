@@ -83,7 +83,9 @@ final class GlassDrawable extends Drawable {
         if (host != null && bd != null && host.isAttachedToWindow()) {
             // The part of the full-screen, centre-cropped blurred wallpaper that sits behind us.
             host.getLocationOnScreen(loc);
-            int sw = host.getRootView().getWidth(), sh = host.getRootView().getHeight();
+            // Whole-screen size: a dialog's window is smaller than the screen the wallpaper fills.
+            android.util.DisplayMetrics dm = host.getResources().getDisplayMetrics();
+            int sw = dm.widthPixels, sh = dm.heightPixels;
             float scale = Math.max(sw / (float) bd.getWidth(), sh / (float) bd.getHeight());
             float ox = (sw - bd.getWidth() * scale) / 2f, oy = (sh - bd.getHeight() * scale) / 2f;
             src.set((int) ((loc[0] + b.left - ox) / scale), (int) ((loc[1] + b.top - oy) / scale),

@@ -1046,7 +1046,7 @@ public class HomeActivity extends Activity {
                 } catch (Exception ignored) { }
             });
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle(labelOf(key))
                 .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
                 .show();
@@ -1718,7 +1718,7 @@ public class HomeActivity extends Activity {
             names.add("Done");
             acts.add(this::exitEdit);
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle(labelOf(key))
                 .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
                 .show();
@@ -1776,7 +1776,7 @@ public class HomeActivity extends Activity {
             ids.add(f.getKey());
             names.add(f.getValue().name);
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Move " + labelOf(key) + " to")
                 .setItems(names.toArray(new String[0]), (d, which) -> {
                     store.removeEverywhere(key);
@@ -1803,7 +1803,7 @@ public class HomeActivity extends Activity {
         FrameLayout wrap = new FrameLayout(this);
         wrap.setPadding(dp(20), dp(8), dp(20), 0);
         wrap.addView(input);
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle(title)
                 .setView(wrap)
                 .setPositiveButton("OK", (d, w) -> {
@@ -1929,7 +1929,7 @@ public class HomeActivity extends Activity {
             store.save();
         }));
         home.add(SettingsPanel.action("Reset layout", "Original dock and order, no folders, nothing hidden", null,
-                () -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                () -> new GlassDialog(this)
                         .setTitle("Reset layout?")
                         .setMessage("Puts the dock and apps back to the original layout, removes folders and shows hidden apps.")
                         .setPositiveButton("Reset", (d, w) -> {
@@ -2044,7 +2044,7 @@ public class HomeActivity extends Activity {
      * its own confirmation; Haven can't remove itself without it.
      */
     private void uninstallHaven() {
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Uninstall Haven?")
                 .setMessage("The Home button goes back to the Google TV home screen. Your Haven layout, photos and "
                         + "settings are deleted. Android asks you to confirm next.")
@@ -2115,7 +2115,7 @@ public class HomeActivity extends Activity {
     // ---------------------------------------------------------------- updates
 
     private void offerUpdate(Updater.Release r) {
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Haven " + r.version + " is available")
                 .setMessage("You have " + Updater.installedVersion(this) + ". Haven downloads the update from GitHub, "
                         + "then Android asks you to confirm. Your layout and settings stay.")
@@ -2126,7 +2126,7 @@ public class HomeActivity extends Activity {
 
     private void installUpdate(Updater.Release r) {
         if (!Updater.canInstall(this)) return;
-        AlertDialog progress = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        AlertDialog progress = new GlassDialog(this)
                 .setTitle("Updating Haven")
                 .setMessage("Downloading…")
                 .setCancelable(false)
@@ -2147,7 +2147,7 @@ public class HomeActivity extends Activity {
             ui.post(() -> {
                 progress.dismiss();
                 if (err != null) {
-                    new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    new GlassDialog(this)
                             .setTitle("Couldn't update")
                             .setMessage(err)
                             .setPositiveButton("OK", null)
@@ -2171,7 +2171,7 @@ public class HomeActivity extends Activity {
         acts.add(this::importFromUsb);
         if (mine > 0) {
             names.add("Delete your photos (" + mine + ")…");
-            acts.add(() -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            acts.add(() -> new GlassDialog(this)
                     .setTitle("Delete your " + mine + " photos?")
                     .setMessage("Removes the photos you added to Haven. Haven's own photos stay.")
                     .setPositiveButton("Delete", (d, w) -> bg.execute(() -> {
@@ -2181,7 +2181,7 @@ public class HomeActivity extends Activity {
                     .setNegativeButton("Cancel", null)
                     .show());
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Add your own photos")
                 .setItems(names.toArray(new String[0]), (d, which) -> acts.get(which).run())
                 .show();
@@ -2232,7 +2232,7 @@ public class HomeActivity extends Activity {
         tlp.leftMargin = dp(24);
         body.addView(text, tlp);
 
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Add photos from your phone")
                 .setView(body)
                 .setPositiveButton("Done", null)
@@ -2301,7 +2301,7 @@ public class HomeActivity extends Activity {
         List<String> keys = new ArrayList<>(store.hidden);
         List<String> names = new ArrayList<>();
         for (String k : keys) names.add(labelOf(k));
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        new GlassDialog(this)
                 .setTitle("Show a hidden app")
                 .setItems(names.toArray(new String[0]), (d, which) -> {
                     store.hidden.remove(keys.get(which));
