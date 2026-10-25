@@ -112,7 +112,11 @@ public class HomeActivity extends Activity {
     private ScrollView scroller;
     private HorizontalScrollView dockScroll;
     private LinearLayout dockRow, grid, overlayGrid, topBar;
-    private Section recentSec, continueSec, recoSec, dockSec, inputsSec;
+    private Section upNextSec, recentSec, recoSec, dockSec, inputsSec;
+    /** Your in-progress titles; the Up next card shows one, Left/Right steps through them. */
+    private List<WatchNext.Item> upNext = new ArrayList<>();
+    private int upNextAt;
+    private UpNextViews upNextViews;
     private View shade;
     private String overlayId, editKey;
     private ObjectAnimator wiggle;
@@ -278,6 +282,15 @@ public class HomeActivity extends Activity {
                 return settings.handleKey(e) || super.dispatchKeyEvent(e);
             }
             if (editKey == null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
+                    && upNextViews != null && getCurrentFocus() == upNextViews.tile) {
+                if (upNext.size() > 1) {
+                    upNextAt = (upNextAt + (k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1) + upNext.size()) % upNext.size();
+                    bindUpNext();
+                    tick();
+                }
+                return true;
+            }
+            if (editKey == null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
                     && keepInRow(k == KeyEvent.KEYCODE_DPAD_RIGHT)) return true;
             if (editKey == null && !searchOpen && overlayId == null
                     && (k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN)
@@ -329,7 +342,7 @@ public class HomeActivity extends Activity {
     /** Every row of Home, top to bottom: the visible sections, then each row of the app grid. */
     private List<LinearLayout> homeRows() {
         List<LinearLayout> rows = new ArrayList<>();
-        for (Section s : new Section[]{recentSec, continueSec, recoSec, dockSec, inputsSec}) {
+        for (Section s : new Section[]{upNextSec, recoSec, recentSec, dockSec, inputsSec}) {
             if (s.box.getVisibility() == View.VISIBLE && s.row.getChildCount() > 0) rows.add(s.row);
         }
         for (int i = 0; i < grid.getChildCount(); i++) rows.add((LinearLayout) grid.getChildAt(i));
@@ -377,7 +390,7 @@ public class HomeActivity extends Activity {
     private void goHome() {
         scroller.smoothScrollTo(0, 0);
         View first = null;
-        for (Section s : new Section[]{recentSec, continueSec, recoSec, dockSec, inputsSec}) {
+        for (Section s : new Section[]{upNextSec, recoSec, recentSec, dockSec, inputsSec}) {
             s.scroll.smoothScrollTo(0, 0);
             if (first == null && s.box.getVisibility() == View.VISIBLE) first = firstTile(s.row);
         }
@@ -431,15 +444,16 @@ public class HomeActivity extends Activity {
         // Room for the tab bar and the clock column above the first row.
         content.addView(new View(this), new LinearLayout.LayoutParams(-1, dp(TOP_SPACE)));
 
-        // Home rows, top to bottom: Recent, Top movies, Trending shows, Favourites (dock), Inputs, Apps.
+        // Home rows, top to bottom: Up next, Top picks, Recent, Favourites (dock), Inputs, Apps.
+        // Up next: one glass card for what you were watching (in place of a Continue watching row).
+        upNextSec = new Section(null);
         recentSec = new Section("Recent");
-        continueSec = new Section("Continue watching");
         recoSec = new Section("Top picks for you");
         dockSec = new Section("Favourites");
         inputsSec = new Section("Inputs");
         dockRow = dockSec.row;
         dockScroll = dockSec.scroll;
-        for (Section s : new Section[]{recentSec, continueSec, recoSec, dockSec, inputsSec}) {
+        for (Section s : new Section[]{upNextSec, recoSec, recentSec, dockSec, inputsSec}) {
             if (s != dockSec) s.box.setVisibility(View.GONE);
             content.addView(s.box, new LinearLayout.LayoutParams(-1, -2));
         }
@@ -499,7 +513,7 @@ public class HomeActivity extends Activity {
         // Plugin photos can come with long captions: keep the credit to a narrow column.
         for (TextView t : new TextView[]{creditTitle, creditLine}) {
             t.setGravity(Gravity.END);
-            t.setMaxWidth(dp(360));
+            t.setMaxWidth(dp(290)); // stays clear of the Up next card
             t.setMaxLines(t == creditLine ? 2 : 1);
             t.setEllipsize(TextUtils.TruncateAt.END);
         }
@@ -825,10 +839,13 @@ public class HomeActivity extends Activity {
 
         boolean pinned; // true for rows outside the Home scroller (search results)
 
+        /** {@code name} null: no heading (the Up next card carries its own label). */
         Section(String name) {
-            TextView title = Ui.text(HomeActivity.this, name, 16, Ui.semibold);
-            title.setPadding(dp(SIDE), dp(26), dp(SIDE), 0);
-            box.addView(title);
+            if (name != null) {
+                TextView title = Ui.text(HomeActivity.this, name, 16, Ui.semibold);
+                title.setPadding(dp(SIDE), dp(26), dp(SIDE), 0);
+                box.addView(title);
+            }
             row.setPadding(dp(SIDE), dp(12), dp(SIDE), dp(4));
             scroll.addView(row);
             box.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
@@ -910,8 +927,191 @@ public class HomeActivity extends Activity {
                 if (reco.size() >= 26) break;
             }
             ui.post(() -> {
-                fillWatch(continueSec, items);
+                fillUpNext(items);
                 fillWatch(recoSec, reco);
+            });
+        });
+    }
+
+    /** The Up next card's parts, updated in place when the title changes (so focus stays put). */
+    private static final class UpNextViews {
+        FrameLayout tile;
+        android.widget.ImageView art;
+        TextView badge, title, episode, pct, action, nav;
+        View bar, barFill;
+    }
+
+    private void fillUpNext(List<WatchNext.Item> items) {
+        String current = upNextAt < upNext.size() ? upNext.get(upNextAt).title : null;
+        upNext = items;
+        upNextAt = 0;
+        for (int i = 0; current != null && i < items.size(); i++) if (items.get(i).title.equals(current)) upNextAt = i;
+        if (items.isEmpty()) {
+            boolean had = upNextViews != null && upNextViews.tile.hasFocus();
+            upNextSec.row.removeAllViews();
+            upNextViews = null;
+            upNextSec.box.setVisibility(View.GONE);
+            if (had) goHome();
+            return;
+        }
+        if (upNextViews == null) {
+            upNextSec.row.removeAllViews();
+            upNextSec.add(upNextCard());
+        }
+        upNextSec.box.setVisibility(View.VISIBLE);
+        bindUpNext();
+    }
+
+    /** A wide glass card: the title's artwork with its app, then Up next, title, episode, progress, Resume. */
+    private View upNextCard() {
+        UpNextViews v = new UpNextViews();
+        LinearLayout cell = column();
+        cell.setClipChildren(false);
+        FrameLayout tile = new FrameLayout(this);
+        int w = 510, h = 148; // stops short of the photo credit on the right
+        tile.setBackground(new GlassDrawable(tile, dp(18), 0x1FFFFFFF, 0.8f));
+        tile.setFocusable(true);
+        tile.setClickable(true);
+        tile.setTag("upnext");
+        tile.setCameraDistance(8000 * getResources().getDisplayMetrics().density);
+        LinearLayout body = row();
+        body.setGravity(Gravity.CENTER_VERTICAL);
+        body.setPadding(dp(12), dp(12), dp(16), dp(12));
+
+        FrameLayout artBox = new FrameLayout(this);
+        artBox.setOutlineProvider(Ui.rounded(dp(10)));
+        artBox.setClipToOutline(true);
+        artBox.setBackgroundColor(0xFF22252B);
+        artBox.setForeground(GlassDrawable.overlay(artBox, dp(10), 0.7f));
+        v.art = new android.widget.ImageView(this);
+        v.art.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        artBox.addView(v.art, match());
+        v.badge = Ui.text(this, "", 10, Ui.medium);
+        v.badge.setShadowLayer(0, 0, 0, 0);
+        GradientDrawable bbg = new GradientDrawable();
+        bbg.setColor(0xCC000000);
+        bbg.setCornerRadius(dp(4));
+        v.badge.setBackground(bbg);
+        v.badge.setPadding(dp(5), dp(1), dp(5), dp(1));
+        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
+        blp.setMargins(0, 0, dp(5), dp(5));
+        artBox.addView(v.badge, blp);
+        body.addView(artBox, new LinearLayout.LayoutParams(dp(220), dp(124)));
+
+        LinearLayout text = column();
+        text.setPadding(dp(16), 0, 0, 0);
+        TextView chip = Ui.text(this, "Up next", 11, Ui.medium);
+        chip.setShadowLayer(0, 0, 0, 0);
+        GradientDrawable cbg = new GradientDrawable();
+        cbg.setColor(0x4D000000);
+        cbg.setCornerRadius(dp(9));
+        chip.setBackground(cbg);
+        chip.setPadding(dp(8), dp(1), dp(8), dp(2));
+        LinearLayout top = row();
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(chip, new LinearLayout.LayoutParams(-2, -2));
+        // ‹ 1 of 3 ›: Left/Right on the card moves between your in-progress titles.
+        v.nav = Ui.text(this, "", 12, Ui.medium);
+        v.nav.setShadowLayer(0, 0, 0, 0);
+        v.nav.setBackground(new GlassDrawable(v.nav, -1, 0x26FFFFFF, 0.7f));
+        v.nav.setPadding(dp(9), dp(1), dp(9), dp(2));
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-2, -2);
+        nlp.leftMargin = dp(10);
+        top.addView(v.nav, nlp);
+        text.addView(top, new LinearLayout.LayoutParams(-2, -2));
+        v.title = Ui.text(this, "", 21, Ui.semibold);
+        v.title.setSingleLine(true);
+        v.title.setEllipsize(TextUtils.TruncateAt.END);
+        text.addView(v.title, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(4); }});
+        v.episode = Ui.text(this, "", 13, Ui.regular);
+        v.episode.setAlpha(0.85f);
+        v.episode.setSingleLine(true);
+        v.episode.setEllipsize(TextUtils.TruncateAt.END);
+        text.addView(v.episode);
+        v.bar = new FrameLayout(this);
+        GradientDrawable track = new GradientDrawable();
+        track.setColor(0x4DFFFFFF);
+        track.setCornerRadius(dp(2));
+        v.bar.setBackground(track);
+        v.barFill = new View(this);
+        GradientDrawable fill = new GradientDrawable();
+        fill.setColor(Color.WHITE);
+        fill.setCornerRadius(dp(2));
+        v.barFill.setBackground(fill);
+        ((FrameLayout) v.bar).addView(v.barFill, new FrameLayout.LayoutParams(0, -1));
+        text.addView(v.bar, new LinearLayout.LayoutParams(dp(220), dp(4)) {{ topMargin = dp(9); }});
+        LinearLayout actions = row();
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        v.action = Ui.text(this, "Resume", 13, Ui.semibold);
+        v.action.setShadowLayer(0, 0, 0, 0);
+        v.action.setTextColor(0xFF15171A);
+        GradientDrawable abg = new GradientDrawable();
+        abg.setColor(0xFFF4F4F4);
+        abg.setCornerRadius(dp(14));
+        v.action.setBackground(abg);
+        v.action.setPadding(dp(14), dp(4), dp(14), dp(5));
+        actions.addView(v.action);
+        v.pct = Ui.text(this, "", 12, Ui.regular);
+        v.pct.setAlpha(0.8f);
+        v.pct.setPadding(dp(10), 0, 0, 0);
+        actions.addView(v.pct);
+        text.addView(actions, new LinearLayout.LayoutParams(-2, -2) {{ topMargin = dp(9); }});
+        body.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        tile.addView(body, match());
+        Ui.addGloss(tile, w, h);
+        cell.addView(tile, new LinearLayout.LayoutParams(dp(w), dp(h)));
+
+        tile.setOnFocusChangeListener((x, has) -> {
+            Ui.focus(tile, has, 1.03f);
+            tile.setBackground(new GlassDrawable(tile, dp(18), has ? 0x33FFFFFF : 0x1FFFFFFF, has ? 1f : 0.8f));
+            if (!has) return;
+            tick();
+            upNextSec.follow(cell);
+        });
+        tile.setOnClickListener(x -> {
+            if (upNextAt >= upNext.size()) return;
+            WatchNext.Item item = upNext.get(upNextAt);
+            try {
+                startActivity(item.intent);
+                store.noteLaunch(item.pkg);
+            } catch (Exception ex) {
+                Apps.Entry app = entries.get(item.pkg);
+                if (app != null) launch(app, x);
+            }
+        });
+        v.tile = tile;
+        upNextViews = v;
+        return cell;
+    }
+
+    private void bindUpNext() {
+        UpNextViews v = upNextViews;
+        if (v == null || upNextAt >= upNext.size()) return;
+        WatchNext.Item item = upNext.get(upNextAt);
+        Apps.Entry app = entries.get(item.pkg);
+        String appName = app != null ? labelOf(app.key) : "";
+        v.title.setText(item.title);
+        String detail = !item.episode.isEmpty() ? item.episode : item.subtitle;
+        v.episode.setText(detail.isEmpty() ? appName : detail);
+        v.badge.setText(appName);
+        v.badge.setVisibility(appName.isEmpty() ? View.GONE : View.VISIBLE);
+        boolean started = item.progress > 0.01f;
+        v.bar.setVisibility(started ? View.VISIBLE : View.GONE);
+        v.barFill.getLayoutParams().width = (int) (dp(220) * Math.max(0f, item.progress));
+        v.barFill.requestLayout();
+        v.action.setText(started ? "Resume" : "Play");
+        v.pct.setText(started ? Math.round(item.progress * 100) + "% watched" : "");
+        v.pct.setVisibility(started ? View.VISIBLE : View.GONE);
+        v.nav.setText("‹   " + (upNextAt + 1) + " of " + upNext.size() + "   ›");
+        v.nav.setVisibility(upNext.size() > 1 ? View.VISIBLE : View.GONE);
+        v.art.setImageDrawable(null);
+        String want = item.image;
+        img.execute(() -> {
+            android.graphics.Bitmap b = Media.poster(this, want);
+            if (b != null) ui.post(() -> {
+                if (upNextViews == v && upNextAt < upNext.size() && want != null && want.equals(upNext.get(upNextAt).image)) {
+                    v.art.setImageBitmap(b);
+                }
             });
         });
     }

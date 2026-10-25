@@ -23,11 +23,12 @@ mostly wallpapers.
 
 ## Features
 
-- **Home rows**, top to bottom:
-  - **Recent**: your recently used apps.
-  - **Continue watching**: the Watch Next rows your apps publish, newest first.
+- **Home**, top to bottom:
+  - **Up next**: a glass card for what you were watching, with the season and episode, how far
+    you got and Resume. The ‹ › arrows (Left/Right) step through your other in-progress titles.
   - **Top picks for you**: a few programs from each app's home-screen channels, mixed so no
     single app takes over, plus what's trending on Netflix in your country.
+  - **Recent**: your recently used apps.
   - **Favourites**: the dock.
   - **Inputs**: Live TV and HDMI.
   - **Apps**: every app, which you can sort, put in folders, rename or hide.

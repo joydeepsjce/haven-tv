@@ -23,6 +23,10 @@ final class WatchNext {
     static final class Item {
         final String title, subtitle, image, pkg;
         final Intent intent;
+        /** How far you got, 0 to 1, or -1 when the app doesn't say. */
+        float progress = -1;
+        /** "S2 · E4" style season and episode, or "" when the app doesn't say. */
+        String episode = "";
 
         Item(String title, String subtitle, String image, String pkg, Intent intent) {
             this.title = title;
@@ -37,7 +41,8 @@ final class WatchNext {
     /** Apps left out of Top picks (Spotify only publishes promo cards). */
     private static final Set<String> EXCLUDED = new HashSet<>(java.util.Arrays.asList("com.spotify.tv.android"));
     private static final String[] COLS = {"package_name", "title", "episode_title", "poster_art_uri",
-            "thumbnail_uri", "intent_uri", "last_engagement_time_utc_millis", "browsable"};
+            "thumbnail_uri", "intent_uri", "last_engagement_time_utc_millis", "browsable",
+            "last_playback_position_millis", "duration_millis", "season_display_number", "episode_display_number"};
 
     private WatchNext() { }
 
@@ -86,7 +91,7 @@ final class WatchNext {
                 Object[] r = new Object[COLS.length];
                 for (int i = 0; i < COLS.length; i++) {
                     if (ix[i] < 0) continue;
-                    r[i] = i == 6 || i == 7 ? (Object) cur.getLong(ix[i]) : cur.getString(ix[i]);
+                    r[i] = i == 6 || i == 7 || i == 8 || i == 9 ? (Object) cur.getLong(ix[i]) : cur.getString(ix[i]);
                 }
                 rows.add(r);
             }
@@ -109,7 +114,14 @@ final class WatchNext {
                 continue;
             }
             String poster = r[3] != null ? (String) r[3] : (String) r[4];
-            out.add(new Item(title, r[2] != null ? (String) r[2] : "", poster, pkg, intent));
+            Item item = new Item(title, r[2] != null ? (String) r[2] : "", poster, pkg, intent);
+            long pos = num(r[8]), len = num(r[9]);
+            if (pos > 0 && len > 0) item.progress = Math.min(1f, pos / (float) len);
+            String season = (String) r[10], ep = (String) r[11];
+            if (ep != null && !ep.isEmpty()) {
+                item.episode = (season != null && !season.isEmpty() ? "Season " + season + " · " : "") + "Episode " + ep;
+            }
+            out.add(item);
         }
         return out;
     }
