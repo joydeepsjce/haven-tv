@@ -460,6 +460,7 @@ public class HomeActivity extends Activity {
             creditBox.setAlpha(1f - f);
             if (overlayId == null && (blurAnim == null || !blurAnim.isRunning())) slideshow.setBlur(blurTarget());
             // Fade the tabs and clock as the dock scrolls up underneath them; they return with the dock.
+            if (settings != null && settings.isOpen()) return; // hidden behind Settings
             clockBox.setAlpha(1f - f);
             topBar.setAlpha(1f - f);
         });
@@ -467,8 +468,8 @@ public class HomeActivity extends Activity {
 
         topBar = buildTopBar();
         FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        blp.leftMargin = dp(SIDE - 4);
-        blp.topMargin = dp(22);
+        blp.leftMargin = dp(SIDE - 4 - 10); // the bar's 10dp padding is room for focused buttons to grow
+        blp.topMargin = dp(22 - 10);
         root.addView(topBar, blp);
 
         // Right column, at the screen's right edge: clock, date, weather, then the photo credit.
@@ -609,6 +610,8 @@ public class HomeActivity extends Activity {
         rebuild();
         loadRecents();
         loadContinue(); // again now that app names are known, for the badges
+        // A change made in Settings (icon pack) rebuilds the tiles; focus stays in Settings.
+        if (settings != null && settings.isOpen()) return;
         if (focusKey == null || !focus(focusKey)) goHome();
     }
 
@@ -1029,6 +1032,7 @@ public class HomeActivity extends Activity {
         List<Runnable> acts = new ArrayList<>();
         names.add("Rename…");
         acts.add(() -> rename(key));
+        addIconChoice(key, names, acts);
         if (!store.dock.contains(key)) {
             names.add("Add to dock");
             acts.add(() -> {
@@ -1069,6 +1073,10 @@ public class HomeActivity extends Activity {
     private LinearLayout buildTopBar() {
         LinearLayout bar = row();
         bar.setGravity(Gravity.CENTER_VERTICAL);
+        // Focused buttons grow; let them draw past the bar's edges instead of being cut off.
+        bar.setClipChildren(false);
+        bar.setClipToPadding(false);
+        bar.setPadding(dp(10), dp(10), dp(10), dp(10));
         bar.addView(accountButton());
         LinearLayout tabs = row();
         tabs.setGravity(Gravity.CENTER_VERTICAL);
@@ -1209,13 +1217,14 @@ public class HomeActivity extends Activity {
         searchField.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         searchField.setPadding(dp(14), 0, dp(14), 0);
         bar.addView(searchField, new LinearLayout.LayoutParams(0, dp(60), 1f));
-        View mic = circleButton(R.drawable.ic_tab_mic, null, "Voice search", this::remoteMic);
+        // Dictation into Haven's own search, not the remote's assistant (Gemini on newer Google TV).
+        View mic = circleButton(R.drawable.ic_tab_mic, null, "Voice search", this::startVoice);
         bar.addView(mic, new LinearLayout.LayoutParams(dp(44), dp(44)));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(60));
         blp.leftMargin = blp.rightMargin = dp(SIDE);
         col.addView(bar, blp);
 
-        searchHint = Ui.text(this, "Press OK to type, or the mic to speak", 13, Ui.regular);
+        searchHint = Ui.text(this, "Press OK to type, or choose the mic to speak", 13, Ui.regular);
         searchHint.setAlpha(0.6f);
         searchHint.setPadding(dp(SIDE + 22), dp(10), dp(SIDE), 0);
         col.addView(searchHint);
@@ -1325,20 +1334,6 @@ public class HomeActivity extends Activity {
         return p;
     }
 
-    /**
-     * Same as pressing the remote's mic button (Apple TV's Siri button): Google's voice search,
-     * which finds titles across all your apps and YouTube.
-     */
-    private void remoteMic() {
-        closeSearch();
-        try {
-            startActivity(new Intent("android.search.action.GLOBAL_SEARCH")
-                    .setPackage("com.google.android.katniss").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Exception ex) {
-            startVoice();
-        }
-    }
-
     /** Google's speech recogniser; what's said fills the search screen. */
     private void startVoice() {
         Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -1346,15 +1341,18 @@ public class HomeActivity extends Activity {
                         android.speech.RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
                 .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search for a movie, show, app or video");
         // Google's TV speech input (the remote's mic), named directly: two apps claim this action.
-        Intent google = new Intent(i).setPackage("com.google.android.katniss");
+        Intent google = new Intent(i).setClassName("com.google.android.katniss",
+                "com.google.android.apps.tvsearch.voice.voiceinput.VoiceInputActivity");
         try {
             startActivityForResult(google, VOICE_REQUEST);
         } catch (Exception ex) {
             try {
+                startActivityForResult(new Intent(i).setPackage("com.google.android.katniss"), VOICE_REQUEST);
+            } catch (Exception ex1) { try {
                 startActivityForResult(i, VOICE_REQUEST);
             } catch (Exception ex2) {
                 searchApps(""); // fall back to Google TV's own voice search
-            }
+            } }
         }
     }
 
@@ -1697,6 +1695,7 @@ public class HomeActivity extends Activity {
             }
             names.add("Rename…");
             acts.add(() -> rename(key));
+            addIconChoice(key, names, acts);
             names.add("Hide");
             acts.add(() -> {
                 store.removeEverywhere(key);
@@ -1831,13 +1830,16 @@ public class HomeActivity extends Activity {
     }
 
     private void onSettingsClosed() {
-        float f = scrollFraction();
+        boolean home = beforeSettings == null || !beforeSettings.isAttachedToWindow();
+        if (home) goHome();
+        else beforeSettings.requestFocus();
+        beforeSettings = null;
+        // goHome scrolls to the top, where the tabs and clock are fully shown.
+        float f = home ? 0f : scrollFraction();
         scroller.animate().alpha(1f).setDuration(180).start();
         topBar.animate().alpha(1f - f).setDuration(180).start();
         clockBox.animate().alpha(1f - f).setDuration(180).start();
         updateBlur(true);
-        if (beforeSettings != null && beforeSettings.isAttachedToWindow()) beforeSettings.requestFocus();
-        beforeSettings = null;
     }
 
     /** First time Haven runs without its basics (Home button, Continue watching), it opens Set up. */
@@ -1862,7 +1864,7 @@ public class HomeActivity extends Activity {
         List<SettingsPanel.Row> wall = new ArrayList<>();
         List<String[]> sources = wallSources();
         android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
-        String sourceId = prefs.getString(Slideshow.SOURCE_KEY, "");
+        String sourceId = Slideshow.sourceId(this);
         int at = 0;
         for (int i = 0; i < sources.size(); i++) if (sources.get(i)[0].equals(sourceId)) at = i;
         int currentSource = at;
@@ -1916,6 +1918,20 @@ public class HomeActivity extends Activity {
         if (!store.hidden.isEmpty()) {
             home.add(SettingsPanel.action("Hidden apps", "Show an app you hid", () -> store.hidden.size() + "  ›", this::showHidden));
         }
+        List<IconPacks.Info> packs = IconPacks.find(this);
+        String packId = IconPacks.chosenPkg(this);
+        int packAt = 0;
+        for (int i = 0; i < packs.size(); i++) if (packs.get(i).pkg.equals(packId)) packAt = i + 1;
+        int currentPack = packAt;
+        home.add(SettingsPanel.choice("Icon pack", packs.isEmpty()
+                        ? "Install a TV icon pack (CoreBuilds, Projectivy Icon Pack) to use its banners"
+                        : "Banners or icons from an installed icon pack",
+                () -> currentPack == 0 ? "None" : packs.get(currentPack - 1).name, dir -> {
+                    if (packs.isEmpty()) return;
+                    int n = (currentPack + dir + packs.size() + 1) % (packs.size() + 1);
+                    prefs.edit().putString(IconPacks.PREF, n == 0 ? "" : packs.get(n - 1).pkg).commit();
+                    reloadEntries();
+                }));
         home.add(SettingsPanel.action("Account badge", "Google hides your name from other apps, so pick a letter",
                 () -> store.accountLetter.isEmpty() ? "Icon" : store.accountLetter,
                 () -> askName("Letter for the account badge (empty for an icon)", "", false, name -> {
@@ -2295,6 +2311,30 @@ public class HomeActivity extends Activity {
         if (code != REQ_USB) return;
         if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) importFromUsb();
         else Toast.makeText(this, "Haven needs access to photos to read the USB drive", Toast.LENGTH_LONG).show();
+    }
+
+    /** Per app: back to its own banner, or back to the icon pack's. */
+    private void addIconChoice(String key, List<String> names, List<Runnable> acts) {
+        Apps.Entry e = entries.get(key);
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        if (e == null || e.pkg == null || IconPacks.chosenPkg(this).isEmpty()) return;
+        List<String> skip = new ArrayList<>(java.util.Arrays.asList(prefs.getString(IconPacks.SKIP_PREF, "").split(",")));
+        skip.remove("");
+        if (e.fromPack) {
+            names.add("Use the app's own banner");
+            acts.add(() -> {
+                skip.add(key);
+                prefs.edit().putString(IconPacks.SKIP_PREF, android.text.TextUtils.join(",", skip)).apply();
+                reloadEntries();
+            });
+        } else if (skip.contains(key)) {
+            names.add("Use the icon pack's banner");
+            acts.add(() -> {
+                skip.remove(key);
+                prefs.edit().putString(IconPacks.SKIP_PREF, android.text.TextUtils.join(",", skip)).apply();
+                reloadEntries();
+            });
+        }
     }
 
     private void showHidden() {

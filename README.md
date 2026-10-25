@@ -34,7 +34,7 @@ mostly wallpapers.
 - **Top bar** (press Up): account, search, Home, Live TV and the maker's channels app when the
   TV has them, Inputs and TV Settings.
 - **Search**: a full-screen search bar that finds apps as you type, with "Search all your apps"
-  (Google's search) and "Search YouTube". The mic works like the remote's mic button.
+  (Google's search) and "Search YouTube". The mic types what you say into the search box.
 - **Wallpapers**: 26 Wikimedia Commons featured photos, with the place and photographer shown
   in the corner. The photo blurs while you use the remote and turns sharp again when you stop.
   The focus colour comes from the photo.
@@ -42,11 +42,18 @@ mostly wallpapers.
   rows, with no API key needed. When you move to a card, the wallpaper changes to that title.
 - **Your own photos**, added without adb: scan a QR code on the TV with your phone and pick
   photos, or copy them from a USB drive. Show them with Haven's photos or on their own.
-- **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins, such as
+- **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins (Photo of the
+  Day is used by default when it's installed), such as
   Bing photo of the day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
   Install a plugin, then choose it in Haven Settings > Wallpaper. Its settings open from Haven
   Settings too. Still images, drawables and colours are supported; video and Lottie wallpapers
   aren't yet. Plugins that react to the focused card or to idle mode receive those events.
+- **Icon packs**: TV banner packs such as the
+  [Projectivy Icon Pack](https://github.com/SicMundus86/ProjectivyIconPack/releases) and
+  [Core Builds](https://github.com/brevityA/CoreBuildsApps/releases) give every app a matching
+  banner; square glyph packs sit on glass tiles. Choose one in Haven Settings > Home screen >
+  Icon pack. Any standard (ADW/Nova/Lawnchair) pack works. Hold OK on an app to keep its own banner.
+  The Projectivy Icon Pack is used by default when it's installed.
 - **Clock, date and weather** for wherever the TV is (Open-Meteo; °F in the US).
 - **Edit mode**: hold OK until the tiles wiggle, then move apps between the dock and the grid,
   make folders, rename or hide apps.

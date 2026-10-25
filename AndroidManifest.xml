@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="home.haven.tv"
-    android:versionCode="23"
-    android:versionName="4.7">
+    android:versionCode="24"
+    android:versionName="4.8">
 
     <!-- Only used to fetch the current temperature from api.open-meteo.com. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -33,6 +33,25 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Icon packs (see IconPacks.java). -->
+        <intent>
+            <action android:name="org.adw.launcher.THEMES" />
+        </intent>
+        <intent>
+            <action android:name="com.novalauncher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="ch.deletescape.lawnchair.ICONPACK" />
+        </intent>
+        <intent>
+            <action android:name="com.teslacoilsw.launcher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.anddoes.launcher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.gau.go.launcherex.theme" />
         </intent>
         <!-- Projectivy wallpaper plugins (see Plugins.java). -->
         <intent>

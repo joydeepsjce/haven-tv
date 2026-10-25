@@ -58,6 +58,16 @@ final class Slideshow {
     static final String SOURCE_KEY = "wallSource";
     /** Built-in sources besides Haven's photos (empty id) and plugins (their component name). */
     static final String MINE = "haven:mine", MOVIES = "haven:movies";
+    /** Used until you pick a wallpaper, when installed: Projectivy's Photo of the Day plugin. */
+    static final String DEFAULT_SOURCE = "tv.projectivy.plugin.wallpaperprovider.photooftheday/"
+            + "tv.projectivy.plugin.wallpaperprovider.photooftheday.WallpaperProviderService";
+
+    /** The wallpaper source: your choice, else Photo of the Day if installed, else Haven's photos (""). */
+    static String sourceId(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
+        if (p.contains(SOURCE_KEY)) return p.getString(SOURCE_KEY, "");
+        return Plugins.byId(c, DEFAULT_SOURCE) != null ? DEFAULT_SOURCE : "";
+    }
     /** Display mode for movie art: fill the screen when the picture is wide and sharp enough, else letterbox. */
     private static final int AUTO = -1;
     private static final long MOVIES_FRESH_MS = 30 * 60_000L;
@@ -115,7 +125,7 @@ final class Slideshow {
     /** Re-reads the wallpaper source from Haven's settings and starts over with it. */
     void reload() {
         bg.execute(() -> {
-            String id = c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(SOURCE_KEY, "");
+            String id = sourceId(c);
             source = id;
             Plugins.Info info = id.startsWith("haven:") ? null : Plugins.byId(c, id);
             if (plugin != null && (info == null || !plugin.info.id().equals(info.id()))) {

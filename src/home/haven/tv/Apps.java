@@ -33,6 +33,8 @@ final class Apps {
         String key, label, pkg;
         Drawable banner, icon;
         int tint = 0xFF2A2F38;
+        /** True when the banner or icon comes from the chosen icon pack. */
+        boolean fromPack;
         Intent intent;
     }
 
@@ -47,6 +49,7 @@ final class Apps {
         addActivities(c, pm, Intent.CATEGORY_LAUNCHER, apps, seen);
         Collections.sort(apps, (a, b) -> a.label.compareToIgnoreCase(b.label));
 
+        applyIconPack(c, apps);
         LinkedHashMap<String, Entry> map = new LinkedHashMap<>();
         for (Entry e : apps) map.put(e.key, e);
 
@@ -117,6 +120,27 @@ final class Apps {
         out.removeAll(Arrays.asList("com.google.android.apps.tv.launcherx",
                 "com.google.android.tungsten.setupwraith", "com.google.android.katniss", "com.android.systemui"));
         return out;
+    }
+
+    /** Swaps in the chosen icon pack's banners or icons, except for apps set back to their own. */
+    private static void applyIconPack(Context c, List<Entry> apps) {
+        IconPacks.Pack pack = IconPacks.chosen(c);
+        if (pack == null) return;
+        String skip = "," + c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(IconPacks.SKIP_PREF, "") + ",";
+        for (Entry e : apps) {
+            if (e.intent == null || e.intent.getComponent() == null || skip.contains("," + e.key + ",")) continue;
+            IconPacks.Icon i = pack.icon(e.intent.getComponent());
+            if (i == null) continue;
+            e.fromPack = true;
+            if (i.banner) {
+                e.banner = i.drawable;
+                e.icon = null;
+            } else {
+                e.banner = null;
+                e.icon = i.drawable;
+                e.tint = IconPacks.tint(i.drawable);
+            }
+        }
     }
 
     /** Usage access (Settings > Apps > Special app access), for the Recent row. */
