@@ -1117,19 +1117,19 @@ public class HomeActivity extends Activity {
             android.graphics.Bitmap b = Media.poster(this, want);
             ui.post(() -> {
                 if (upNextViews != v || to >= upNext.size()) { upNextTurning = false; return; }
-                android.view.animation.Interpolator out = new android.view.animation.AccelerateInterpolator(1.5f);
+                android.view.animation.Interpolator out = new android.view.animation.AccelerateDecelerateInterpolator();
                 android.view.animation.Interpolator in = new DecelerateInterpolator(2f);
                 float shift = dp(28) * dir;
-                v.text.animate().translationX(-shift).alpha(0f).setDuration(220).setInterpolator(out).start();
-                v.artBox.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(220).setInterpolator(out)
+                v.text.animate().translationX(-shift).alpha(0f).setDuration(450).setInterpolator(out).start();
+                v.artBox.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(450).setInterpolator(out)
                         .withEndAction(() -> {
                             upNextAt = to;
                             bindUpNext(b);
                             v.text.setTranslationX(shift);
-                            v.text.animate().translationX(0f).alpha(1f).setDuration(420).setInterpolator(in).start();
+                            v.text.animate().translationX(0f).alpha(1f).setDuration(850).setInterpolator(in).start();
                             v.artBox.setScaleX(0.97f);
                             v.artBox.setScaleY(0.97f);
-                            v.artBox.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(480).setInterpolator(in)
+                            v.artBox.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(950).setInterpolator(in)
                                     .withEndAction(() -> upNextTurning = false).start();
                         }).start();
             });
