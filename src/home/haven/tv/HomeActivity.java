@@ -986,7 +986,11 @@ public class HomeActivity extends Activity {
         cell.setClipChildren(false);
         FrameLayout tile = new FrameLayout(this);
         int w = 510, h = 148; // stops short of the photo credit on the right
-        tile.setBackground(new GlassDrawable(tile, dp(18), 0x1FFFFFFF, 0.8f));
+        // Same 16dp corners as the wide app tiles and the focus ring; clip so the gloss layers stay inside.
+        tile.setBackground(new GlassDrawable(tile, dp(16), 0x1FFFFFFF, 0.8f));
+        tile.setOutlineProvider(Ui.rounded(dp(16)));
+        tile.setClipToOutline(true);
+        tile.setElevation(dp(2));
         tile.setFocusable(true);
         tile.setClickable(true);
         tile.setTag("upnext");
@@ -1082,7 +1086,7 @@ public class HomeActivity extends Activity {
 
         tile.setOnFocusChangeListener((x, has) -> {
             Ui.focus(tile, has, 1.03f);
-            tile.setBackground(new GlassDrawable(tile, dp(18), has ? 0x33FFFFFF : 0x1FFFFFFF, has ? 1f : 0.8f));
+            tile.setBackground(new GlassDrawable(tile, dp(16), has ? 0x33FFFFFF : 0x1FFFFFFF, has ? 1f : 0.8f));
             if (!has) return;
             tick();
             upNextSec.follow(cell);
