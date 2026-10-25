@@ -117,6 +117,19 @@ public class HomeActivity extends Activity {
     private List<WatchNext.Item> upNext = new ArrayList<>();
     private int upNextAt;
     private UpNextViews upNextViews;
+    /** The Up next card turns to the next title every 5 seconds, except while it has focus. */
+    private final Runnable upNextTurn = new Runnable() {
+        @Override public void run() {
+            ui.postDelayed(this, 5000);
+            UpNextViews v = upNextViews;
+            if (!resumed || v == null || upNext.size() < 2 || v.tile.hasFocus() || settings.isOpen()) return;
+            upNextAt = (upNextAt + 1) % upNext.size();
+            v.tile.animate().alpha(0.4f).setDuration(150).withEndAction(() -> {
+                bindUpNext();
+                v.tile.animate().alpha(1f).setDuration(250).start();
+            }).start();
+        }
+    };
     private View shade;
     private String overlayId, editKey;
     private ObjectAnimator wiggle;
@@ -193,6 +206,8 @@ public class HomeActivity extends Activity {
             slideshow.reload();
         }
         slideshow.start();
+        ui.removeCallbacks(upNextTurn);
+        ui.postDelayed(upNextTurn, 5000);
         long stale = SystemClock.elapsedRealtime() - lastWeather;
         ui.removeCallbacks(weatherTick);
         ui.postDelayed(weatherTick, Math.max(0, WEATHER_EVERY_MS - stale));
@@ -220,6 +235,7 @@ public class HomeActivity extends Activity {
         super.onPause();
         resumed = false;
         slideshow.pause();
+        ui.removeCallbacks(upNextTurn);
         ui.removeCallbacks(weatherTick);
         ui.removeCallbacks(rearm);
         ui.removeCallbacks(idle);
@@ -455,12 +471,15 @@ public class HomeActivity extends Activity {
         dockScroll = dockSec.scroll;
         for (Section s : new Section[]{upNextSec, recoSec, recentSec, dockSec, inputsSec}) {
             if (s != dockSec) s.box.setVisibility(View.GONE);
-            content.addView(s.box, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            // Cards keep room below for a name that only shows on focus; tuck the next row up into it.
+            if (s != upNextSec) lp.bottomMargin = -dp(20);
+            content.addView(s.box, lp);
         }
 
         appsTitle = Ui.text(this, "Apps", 18, Ui.semibold);
         appsTitle.setAlpha(0.9f);
-        appsTitle.setPadding(dp(SIDE), dp(48), dp(SIDE), dp(4));
+        appsTitle.setPadding(dp(SIDE), dp(30), dp(SIDE), dp(4));
         content.addView(appsTitle);
 
         grid = column();
@@ -843,7 +862,7 @@ public class HomeActivity extends Activity {
         Section(String name) {
             if (name != null) {
                 TextView title = Ui.text(HomeActivity.this, name, 16, Ui.semibold);
-                title.setPadding(dp(SIDE), dp(26), dp(SIDE), 0);
+                title.setPadding(dp(SIDE), dp(20), dp(SIDE), 0);
                 box.addView(title);
             }
             row.setPadding(dp(SIDE), dp(12), dp(SIDE), dp(4));

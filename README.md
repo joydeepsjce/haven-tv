@@ -25,7 +25,8 @@ mostly wallpapers.
 
 - **Home**, top to bottom:
   - **Up next**: a glass card for what you were watching, with the season and episode, how far
-    you got and Resume. The ‹ › arrows (Left/Right) step through your other in-progress titles.
+    you got and Resume. It turns to your next in-progress title every 5 seconds (not while
+    it has focus); the ‹ › arrows (Left/Right) step through them yourself.
   - **Top picks for you**: a few programs from each app's home-screen channels, mixed so no
     single app takes over, plus what's trending on Netflix in your country.
   - **Recent**: your recently used apps.
