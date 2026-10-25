@@ -1230,7 +1230,8 @@ public class HomeActivity extends Activity {
         cell.addView(tile, new LinearLayout.LayoutParams(dp(192), dp(108)));
         TextView label = cardLabel(item.subtitle.isEmpty() ? item.title : item.title + " · " + item.subtitle);
         label.setGravity(Gravity.CENTER);
-        cell.addView(label, new LinearLayout.LayoutParams(dp(216), -2) {{ topMargin = dp(9); }});
+        // As wide as the card, so the row starts on the same line as the others.
+        cell.addView(label, new LinearLayout.LayoutParams(dp(192), -2) {{ topMargin = dp(9); }});
         tile.setOnFocusChangeListener((v, has) -> {
             Ui.focus(tile, has, 1.08f);
             label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(180).start();
