@@ -123,11 +123,7 @@ public class HomeActivity extends Activity {
             ui.postDelayed(this, 5000);
             UpNextViews v = upNextViews;
             if (!resumed || v == null || upNext.size() < 2 || v.tile.hasFocus() || settings.isOpen()) return;
-            upNextAt = (upNextAt + 1) % upNext.size();
-            v.tile.animate().alpha(0.4f).setDuration(150).withEndAction(() -> {
-                bindUpNext();
-                v.tile.animate().alpha(1f).setDuration(250).start();
-            }).start();
+            turnUpNext(1);
         }
     };
     private View shade;
@@ -300,8 +296,7 @@ public class HomeActivity extends Activity {
             if (editKey == null && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT)
                     && upNextViews != null && getCurrentFocus() == upNextViews.tile) {
                 if (upNext.size() > 1) {
-                    upNextAt = (upNextAt + (k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1) + upNext.size()) % upNext.size();
-                    bindUpNext();
+                    turnUpNext(k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                     tick();
                 }
                 return true;
@@ -957,7 +952,7 @@ public class HomeActivity extends Activity {
         FrameLayout tile;
         android.widget.ImageView art;
         TextView badge, title, episode, pct, action, nav;
-        View bar, barFill;
+        View bar, barFill, text, artBox;
     }
 
     private void fillUpNext(List<WatchNext.Item> items) {
@@ -1076,6 +1071,8 @@ public class HomeActivity extends Activity {
         actions.addView(v.pct);
         text.addView(actions, new LinearLayout.LayoutParams(-2, -2) {{ topMargin = dp(9); }});
         body.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        v.text = text;
+        v.artBox = artBox;
         tile.addView(body, match());
         Ui.addGloss(tile, w, h);
         cell.addView(tile, new LinearLayout.LayoutParams(dp(w), dp(h)));
@@ -1103,7 +1100,48 @@ public class HomeActivity extends Activity {
         return cell;
     }
 
+    private boolean upNextTurning;
+
+    /**
+     * Moves the card to the next ({@code dir} 1) or previous (-1) title: the artwork is loaded
+     * first, then the text slides out and the new text slides in from the other side while the
+     * artwork cross-fades with a slight zoom, so nothing flashes empty.
+     */
+    private void turnUpNext(int dir) {
+        UpNextViews v = upNextViews;
+        if (v == null || upNext.size() < 2 || upNextTurning) return;
+        upNextTurning = true;
+        int to = (upNextAt + dir + upNext.size()) % upNext.size();
+        String want = upNext.get(to).image;
+        img.execute(() -> {
+            android.graphics.Bitmap b = Media.poster(this, want);
+            ui.post(() -> {
+                if (upNextViews != v || to >= upNext.size()) { upNextTurning = false; return; }
+                android.view.animation.Interpolator out = new android.view.animation.AccelerateInterpolator(1.5f);
+                android.view.animation.Interpolator in = new DecelerateInterpolator(2f);
+                float shift = dp(28) * dir;
+                v.text.animate().translationX(-shift).alpha(0f).setDuration(220).setInterpolator(out).start();
+                v.artBox.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(220).setInterpolator(out)
+                        .withEndAction(() -> {
+                            upNextAt = to;
+                            bindUpNext(b);
+                            v.text.setTranslationX(shift);
+                            v.text.animate().translationX(0f).alpha(1f).setDuration(420).setInterpolator(in).start();
+                            v.artBox.setScaleX(0.97f);
+                            v.artBox.setScaleY(0.97f);
+                            v.artBox.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(480).setInterpolator(in)
+                                    .withEndAction(() -> upNextTurning = false).start();
+                        }).start();
+            });
+        });
+    }
+
     private void bindUpNext() {
+        bindUpNext(null);
+    }
+
+    /** {@code art}: the title's artwork when already loaded, else it's fetched. */
+    private void bindUpNext(android.graphics.Bitmap art) {
         UpNextViews v = upNextViews;
         if (v == null || upNextAt >= upNext.size()) return;
         WatchNext.Item item = upNext.get(upNextAt);
@@ -1123,6 +1161,10 @@ public class HomeActivity extends Activity {
         v.pct.setVisibility(started ? View.VISIBLE : View.GONE);
         v.nav.setText("‹   " + (upNextAt + 1) + " of " + upNext.size() + "   ›");
         v.nav.setVisibility(upNext.size() > 1 ? View.VISIBLE : View.GONE);
+        if (art != null) {
+            v.art.setImageBitmap(art);
+            return;
+        }
         v.art.setImageDrawable(null);
         String want = item.image;
         img.execute(() -> {
