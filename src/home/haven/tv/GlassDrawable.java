@@ -62,7 +62,8 @@ final class GlassDrawable extends Drawable {
 
     @Override protected void onBoundsChange(Rect b) {
         float h = b.height();
-        r.set(b.left + rimWidth / 2, b.top + rimWidth / 2, b.right - rimWidth / 2, b.bottom - rimWidth / 2);
+        float in = rim > 0 ? rimWidth / 2 : 0; // no rim (full-screen frost): cover every pixel
+        r.set(b.left + in, b.top + in, b.right - in, b.bottom - in);
         float rad = radius < 0 ? h / 2f : radius;
         shape.reset();
         shape.addRoundRect(r, rad, rad, Path.Direction.CW);

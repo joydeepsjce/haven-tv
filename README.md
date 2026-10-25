@@ -10,14 +10,16 @@ mostly wallpapers.
 
 | | |
 |---|---|
-| ![Continue watching, Top picks and Favourites](docs/rows.jpg) | ![Search](docs/search.jpg) |
-| *Continue watching, Top picks, Favourites* | *Search: apps as you type, plus Google and YouTube search* |
-| ![All apps](docs/apps.jpg) | ![Edit mode](docs/edit.jpg) |
-| *All apps* | *Edit mode: hold OK, then move tiles with the arrows* |
-| ![Tile options](docs/options.jpg) | ![Wallpaper plugin](docs/plugin.jpg) |
-| *Tile options: dock, folders, rename, hide* | *A Projectivy wallpaper plugin (Photo of the Day)* |
+| ![Continue watching, Top picks and Favourites](docs/rows.jpg) | ![All apps](docs/apps.jpg) |
+| *Continue watching, Top picks, Favourites* | *All apps, with glass tiles* |
+| ![Search](docs/search.jpg) | ![Wallpaper plugin](docs/plugin.jpg) |
+| *Search: apps as you type, plus Google and YouTube search* | *A Projectivy wallpaper plugin (Photo of the Day)* |
+| ![Edit mode](docs/edit.jpg) | ![Tile options](docs/options.jpg) |
+| *Edit mode: hold OK, then move tiles with the arrows* | *Tile options: dock, folders, rename, hide* |
 | ![Settings](docs/settings.jpg) | ![Set up Haven](docs/setup.jpg) |
 | *Haven Settings* | *Set up Haven: everything from the remote, no computer* |
+| ![Add photos from your phone](docs/qr.jpg) | |
+| *Add your own photos: scan the QR code with your phone* | |
 
 ## Features
 
@@ -55,7 +57,7 @@ mostly wallpapers.
 - **Survives "cleaner" apps** (e.g. TCL's Safety Guard): it keeps a backup of your layout, starts
   its Home-button service again if something switches it off, and gets past boot managers that
   block third-party apps from starting at boot.
-- **Glass look**, inspired by Apple's Liquid Glass: the top bar, tiles, cards, Settings and menus get a
+- **Glass look**, inspired by Apple's Liquid Glass: the top bar, tiles, cards, search, Settings and menus get a
   frosted fill that shows the blurred wallpaper behind, a light-catching rim and a soft sheen.
 - **Settings** in two panels (sections on the left, options on the right). Left/Right changes a
   value in place.

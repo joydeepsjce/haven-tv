@@ -1184,17 +1184,15 @@ public class HomeActivity extends Activity {
      */
     private void buildSearchOverlay() {
         searchOverlay = new FrameLayout(this);
-        searchOverlay.setBackgroundColor(0xFC0E1014);
+        // Frosted: the blurred wallpaper under a dark tint, like tvOS search.
+        searchOverlay.setBackground(new GlassDrawable(searchOverlay, 0, 0xC70E1014, 0f));
         searchOverlay.setVisibility(View.GONE);
         LinearLayout col = column();
         col.setPadding(0, dp(64), 0, 0);
 
         LinearLayout bar = row();
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable pill = new GradientDrawable();
-        pill.setColor(0x26FFFFFF);
-        pill.setCornerRadius(dp(30));
-        bar.setBackground(pill);
+        bar.setBackground(new GlassDrawable(bar, -1, 0x1AFFFFFF, 1f));
         bar.setPadding(dp(22), 0, dp(8), 0);
         android.widget.ImageView glass = new android.widget.ImageView(this);
         glass.setImageResource(R.drawable.ic_tab_search);
@@ -1309,11 +1307,13 @@ public class HomeActivity extends Activity {
     private View actionPill(int icon, String label, Runnable action) {
         View p = tab(icon, label, label, action, false);
         GradientDrawable bg = (GradientDrawable) p.getBackground();
-        bg.setColor(0x26FFFFFF);
+        bg.setColor(Color.WHITE);
+        GlassDrawable glass = new GlassDrawable(p, -1, 0x1AFFFFFF, 0.9f);
+        p.setBackground(glass);
         android.widget.ImageView iv = (android.widget.ImageView) ((ViewGroup) p).getChildAt(0);
         TextView tv = (TextView) ((ViewGroup) p).getChildAt(1);
         p.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? Color.WHITE : 0x26FFFFFF);
+            v.setBackground(has ? bg : glass);
             int fg = has ? 0xFF15171A : Color.WHITE;
             iv.setImageTintList(android.content.res.ColorStateList.valueOf(fg));
             tv.setTextColor(fg);
