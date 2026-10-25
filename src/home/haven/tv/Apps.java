@@ -45,6 +45,8 @@ final class Apps {
         PackageManager pm = c.getPackageManager();
         List<Entry> apps = new ArrayList<>();
         Map<String, Boolean> seen = new HashMap<>();
+        // Icon packs and wallpaper plugins aren't apps you open; they're chosen in Haven Settings.
+        for (String pkg : addOns(c)) seen.put(pkg, true);
         addActivities(c, pm, Intent.CATEGORY_LEANBACK_LAUNCHER, apps, seen);
         addActivities(c, pm, Intent.CATEGORY_LAUNCHER, apps, seen);
         Collections.sort(apps, (a, b) -> a.label.compareToIgnoreCase(b.label));
@@ -117,6 +119,7 @@ final class Apps {
             out.addAll(fallback);
         }
         out.remove(c.getPackageName());
+        out.removeAll(addOns(c));
         out.removeAll(Arrays.asList("com.google.android.apps.tv.launcherx",
                 "com.google.android.tungsten.setupwraith", "com.google.android.katniss", "com.android.systemui"));
         return out;
@@ -141,6 +144,14 @@ final class Apps {
                 e.tint = IconPacks.tint(i.drawable);
             }
         }
+    }
+
+    /** Installed icon packs and Projectivy wallpaper plugins. */
+    static java.util.Set<String> addOns(Context c) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (IconPacks.Info i : IconPacks.find(c)) out.add(i.pkg);
+        for (Plugins.Info i : Plugins.find(c)) out.add(i.service.getPackageName());
+        return out;
     }
 
     /** Usage access (Settings > Apps > Special app access), for the Recent row. */
