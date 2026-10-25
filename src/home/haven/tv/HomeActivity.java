@@ -117,12 +117,15 @@ public class HomeActivity extends Activity {
     private List<WatchNext.Item> upNext = new ArrayList<>();
     private int upNextAt;
     private UpNextViews upNextViews;
-    /** The Up next card turns to the next title every 5 seconds, except while it has focus. */
+    /**
+     * The Up next card turns to the next title every 5 seconds. Home lands on the card, so it keeps
+     * turning while focused, but waits while you're using the remote (so OK plays what you see).
+     */
     private final Runnable upNextTurn = new Runnable() {
         @Override public void run() {
             ui.postDelayed(this, 5000);
             UpNextViews v = upNextViews;
-            if (!resumed || v == null || upNext.size() < 2 || v.tile.hasFocus() || settings.isOpen()) return;
+            if (!resumed || v == null || upNext.size() < 2 || settings.isOpen() || v.tile.hasFocus() && navigating) return;
             turnUpNext(1);
         }
     };
