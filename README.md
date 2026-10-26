@@ -84,21 +84,24 @@ mostly wallpapers.
    `https://github.com/joydeepsjce/haven-tv/releases/latest/download/haven.apk`
 3. When Android asks, allow Downloader to install apps, then press **Install**.
 4. Open **Haven** from your apps. It opens **Set up Haven**. Turn on each item with the remote:
-   - **Home button**: opens Settings > Accessibility. Choose *Haven Home button* and turn it on.
+   - **Home button**: on Android 14 and later, Android blocks the Home button for apps installed
+     from a file (it switches itself off a second after you turn it on). Choose **Fix** once:
+     Haven asks you to turn on the TV's *Network debugging* (Developer options), then uses it to
+     unlock itself. Choose **Allow** (with *Always allow* ticked) when the TV asks
+     "Allow USB debugging?". Afterwards you can turn debugging off again.
    - **Continue watching and Top picks**, and **Weather**: Android asks once. Choose Allow.
    - **Recent apps**: opens Usage access. Choose Haven and allow it.
    - **Install updates**: lets Haven install its own updates. You confirm each one.
+   - **Keep the Home button on**: the same one-time step, if you haven't done it; Haven then turns
+     the Home button back on whenever the TV or a cleaner app switches it off.
 5. Press Home.
-
-If Android says the Home-button setting is restricted (some TVs do this for apps that didn't
-come from the Play Store), go to Settings > Apps > Haven, allow restricted settings, and try
-again.
 
 **Updating:** Haven Settings > About > Check for updates. Haven also checks by itself every
 12 hours and tells you when there's a new version.
 
 ### With a computer (optional extras)
 
+Not needed any more (Set up Haven does it with the TV's own debugging), but the script still works.
 A one-time adb setup adds two things the remote can't: Haven turns its Home-button service back
 on if a "cleaner" app (such as TCL's Safety Guard) switches it off, and system animations run
 twice as fast. It also does everything in Set up Haven in one go.
@@ -136,6 +139,7 @@ asks you to confirm. If you cancel, Haven puts everything back. From a computer:
 | `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
 | Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
 | Uninstall (`REQUEST_DELETE_PACKAGES`) | Only for Settings > System > Uninstall Haven, which opens Android's own uninstall confirmation for Haven. |
+| The TV's own debugging (127.0.0.1) | Only when you choose Fix / Keep the Home button on: Haven connects to the TV's adb with its own key (you approve it on the TV once) to allow "restricted settings" and grant the permissions above, then disconnects. |
 | Install apps (`REQUEST_INSTALL_PACKAGES`) | Installs Haven's own updates from GitHub, after checking each one is Haven, newer, and signed with the same key. Android asks you to confirm every update. |
 
 ## Tips

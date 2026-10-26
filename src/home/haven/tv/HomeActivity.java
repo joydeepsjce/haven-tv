@@ -2229,14 +2229,17 @@ public class HomeActivity extends Activity {
         // Set up Haven: everything that used to need a computer, from the remote
         List<SettingsPanel.Row> setup = new ArrayList<>();
         setup.add(SettingsPanel.note("Haven works without a computer. Turn these on with the remote; each one opens the TV's own setting or asks once."));
-        setup.add(SettingsPanel.action("Home button", "Settings > Accessibility > Haven Home button > On",
-                () -> Keeper.serviceRunning(this) ? "On" : "Turn on  ›", () -> {
+        boolean blocked = Keeper.restricted(this);
+        setup.add(SettingsPanel.action("Home button", blocked
+                        ? "Android blocks it for apps installed from a file. Fix it once with the TV's debugging"
+                        : "Settings > Accessibility > Haven Home button > On",
+                () -> Keeper.serviceRunning(this) ? "On" : blocked ? "Fix  ›" : "Turn on  ›", () -> {
                     if (Keeper.serviceRunning(this)) return;
                     store.homeKey = true;
                     store.save();
-                    if (Keeper.canWrite(this)) Keeper.ensure(this, true, () -> settings.refresh());
-                    else openTvSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS,
-                            "Choose Haven Home button and turn it on. If it says the setting is restricted: Settings > Apps > Haven > allow restricted settings.");
+                    if (blocked) fixHomeButton();
+                    else if (Keeper.canWrite(this)) Keeper.ensure(this, true, () -> settings.refresh());
+                    else openTvSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS, "Choose Haven Home button and turn it on");
                 }));
         setup.add(SettingsPanel.action("Continue watching and Top picks", "Lets Haven read your apps' rows, like the TV's own home screen",
                 () -> has(LISTINGS) ? "Allowed" : "Allow  ›", () -> {
@@ -2256,11 +2259,9 @@ public class HomeActivity extends Activity {
                 () -> getPackageManager().canRequestPackageInstalls() ? "Allowed" : "Allow  ›", () -> {
                     if (!getPackageManager().canRequestPackageInstalls()) Updater.canInstall(this);
                 }));
-        setup.add(SettingsPanel.action("Extras from a computer", "Optional: brings the Home button back after cleaner apps and speeds up animations. Run the setup script once.",
-                () -> Keeper.canWrite(this) ? "Done" : "Optional", () -> {
-                    if (!Keeper.canWrite(this)) {
-                        Toast.makeText(this, "See github.com/joydeepsjce/haven-tv: sh setup.sh <TV IP>", Toast.LENGTH_LONG).show();
-                    }
+        setup.add(SettingsPanel.action("Keep the Home button on", "One-time, with the TV's own debugging: Haven turns it back on if the TV or a cleaner app switches it off",
+                () -> Keeper.canWrite(this) && !blocked ? "Done" : "Set up  ›", () -> {
+                    if (!Keeper.canWrite(this) || blocked) fixHomeButton();
                 }));
         out.add(new SettingsPanel.Section(SECTIONS[2], setup));
 
@@ -2371,6 +2372,92 @@ public class HomeActivity extends Activity {
         store.save();
         if (store.fastAnim) Keeper.setAnimations(this, "0.5");
         if (store.homeKey) Keeper.ensure(this, true, () -> settings.refresh());
+    }
+
+    /** What the TV's own adb runs for "Fix Home button": everything only the shell may grant. */
+    private static final String FIX_COMMANDS = "p=home.haven.tv; "
+            + "appops set $p ACCESS_RESTRICTED_SETTINGS allow; "
+            + "pm grant $p android.permission.WRITE_SECURE_SETTINGS; "
+            + "pm grant $p android.permission.READ_TV_LISTINGS; "
+            + "pm grant $p android.permission.ACCESS_COARSE_LOCATION; "
+            + "appops set $p GET_USAGE_STATS allow; "
+            + "appops set $p AUTO_START allow 2>/dev/null; appops set $p APP_AUTO_START allow 2>/dev/null; "
+            + "cmd appops write-settings 2>/dev/null; "
+            + "dumpsys deviceidle whitelist +$p >/dev/null 2>&1; "
+            + "appops get $p ACCESS_RESTRICTED_SETTINGS";
+
+    /**
+     * Fixes the Home button without a computer: Android 14 turns off accessibility services from
+     * apps installed by opening the APK until the shell allows "restricted settings". Haven asks
+     * the TV's own adb (network debugging) to do that, plus WRITE_SECURE_SETTINGS so it can turn
+     * the service back on whenever the TV switches it off. Afterwards debugging can be turned off.
+     */
+    private void fixHomeButton() {
+        bg.execute(() -> {
+            boolean on = LocalAdb.listening();
+            ui.post(() -> {
+                if (!on) {
+                    new GlassDialog(this)
+                            .setTitle("Turn on the TV's debugging")
+                            .setMessage("Haven needs it once to unlock the Home button.\n\n"
+                                    + "1. Settings > System > About: press OK on \"Android TV OS build\" 7 times.\n"
+                                    + "2. Settings > System > Developer options: turn on USB debugging and Network debugging "
+                                    + "(on some TVs \"ADB debugging\").\n"
+                                    + "3. Come back here and choose Fix again.\n\n"
+                                    + "You can turn debugging off again afterwards.")
+                            .setPositiveButton("Open Developer options", (d, w) -> {
+                                try {
+                                    startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                                } catch (Exception e) {
+                                    openTvSetting(Settings.ACTION_DEVICE_INFO_SETTINGS, "Press OK on \"Android TV OS build\" 7 times");
+                                }
+                            })
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                    return;
+                }
+                AlertDialog progress = new GlassDialog(this)
+                        .setTitle("Fixing the Home button")
+                        .setMessage("If the TV asks \"Allow USB debugging?\", tick \"Always allow\" and choose Allow.")
+                        .setCancelable(false)
+                        .show();
+                bg.execute(() -> {
+                    LocalAdb.Result r = LocalAdb.run(this, FIX_COMMANDS, 60_000);
+                    ui.post(() -> {
+                        progress.dismiss();
+                        if (!r.ok) {
+                            String why = LocalAdb.NOT_ALLOWED.equals(r.error)
+                                    ? "Debugging wasn't allowed. Choose Fix again, then Allow (with Always allow ticked) on the TV's question."
+                                    : LocalAdb.NOT_LISTENING.equals(r.error)
+                                    ? "Network debugging seems to be off. Turn it on in Developer options and try again."
+                                    : "Couldn't talk to the TV's debugging (" + r.error + ").";
+                            new GlassDialog(this).setTitle("Not fixed yet").setMessage(why)
+                                    .setPositiveButton("OK", null).show();
+                            return;
+                        }
+                        if (r.output.contains("ACCESS_RESTRICTED_SETTINGS: allow")) {
+                            getSharedPreferences("haven", MODE_PRIVATE).edit().putBoolean(Keeper.RESTRICTED_ALLOWED, true).apply();
+                        }
+                        store.homeKey = true;
+                        store.save();
+                        Keeper.schedule(this);
+                        Keeper.ensure(this, true, () -> ui.postDelayed(() -> {
+                            boolean running = Keeper.serviceRunning(this);
+                            settings.refresh();
+                            new GlassDialog(this)
+                                    .setTitle(running ? "Home button fixed" : "Almost there")
+                                    .setMessage(running
+                                            ? "The Home button opens Haven, and Haven turns it back on if the TV switches it off. "
+                                            + "You can turn Network debugging off now."
+                                            : "Haven is allowed now. Turn on Haven Home button in Settings > Accessibility; it will stay on.")
+                                    .setPositiveButton("OK", null)
+                                    .show();
+                        }, 2500));
+                    });
+                });
+            });
+        });
     }
 
     private void checkForUpdates() {

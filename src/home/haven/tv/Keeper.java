@@ -43,6 +43,8 @@ final class Keeper {
     static void ensure(Context c, boolean now, Runnable done) {
         SharedPreferences p = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
         if (!canWrite(c)) { done.run(); return; }
+        // Android 14 switches the service straight back off while this is denied; don't fight it.
+        if (restricted(c)) { done.run(); return; }
         if (p.getBoolean("fastAnim", true)) setAnimations(c, FAST);
         if (p.getBoolean("homeKey", true) && !serviceRunning(c)
                 && (now || SystemClock.elapsedRealtime() - lastRearm >= REARM_GAP_MS)) {
@@ -52,6 +54,29 @@ final class Keeper {
         }
         done.run();
     }
+
+    /**
+     * True when Android 14+ "restricted settings" blocks Haven's accessibility service: apps
+     * installed by opening the APK (Downloader, USB, browser) get this app-op denied, and the
+     * system then turns the service off a second after it's enabled. Only the shell can allow it
+     * (Set up Haven > Fix Home button does it through the TV's own adb, see LocalAdb).
+     */
+    static boolean restricted(Context c) {
+        if (android.os.Build.VERSION.SDK_INT < 33) return false;
+        if (c.getSharedPreferences("haven", Context.MODE_PRIVATE).getBoolean(RESTRICTED_ALLOWED, false)) return false;
+        // Apps can't read this app-op themselves, so go by how Haven was installed: Android
+        // restricts apps installed from a local or downloaded file, not adb or store installs.
+        try {
+            int source = c.getPackageManager().getInstallSourceInfo(c.getPackageName()).getPackageSource();
+            return source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE
+                    || source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Set once Fix Home button has allowed restricted settings (the shell reported "allow"). */
+    static final String RESTRICTED_ALLOWED = "restrictedAllowed";
 
     static boolean canWrite(Context c) {
         return c.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED;

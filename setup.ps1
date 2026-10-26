@@ -34,6 +34,8 @@ Sh "pm grant $pkg android.permission.WRITE_SECURE_SETTINGS"
 Sh "pm grant $pkg android.permission.READ_TV_LISTINGS"
 Sh "pm grant $pkg android.permission.ACCESS_COARSE_LOCATION"
 Sh "appops set $pkg GET_USAGE_STATS allow"
+Sh "appops set $pkg ACCESS_RESTRICTED_SETTINGS allow"
+Sh "appops set $pkg AUTO_START allow 2>/dev/null; appops set $pkg APP_AUTO_START allow 2>/dev/null; cmd appops write-settings 2>/dev/null; dumpsys deviceidle whitelist +$pkg >/dev/null 2>&1" | Out-Null
 Sh "pm grant $pkg android.permission.READ_MEDIA_IMAGES"
 Sh "cmd package set-home-activity $pkg/.HomeActivity" | Out-Null
 

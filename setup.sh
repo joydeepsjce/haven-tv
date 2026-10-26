@@ -34,6 +34,13 @@ sh_tv pm grant $PKG android.permission.READ_TV_LISTINGS
 sh_tv pm grant $PKG android.permission.ACCESS_COARSE_LOCATION || true
 # Recent row: recently used apps, including ones not opened from Haven.
 sh_tv appops set $PKG GET_USAGE_STATS allow
+# Android 14+: apps installed from a file can't keep an accessibility service on until this is allowed.
+sh_tv appops set $PKG ACCESS_RESTRICTED_SETTINGS allow || true
+# TCL and others: let Haven start at boot (names differ by firmware), and keep the app-ops on disk.
+sh_tv appops set $PKG AUTO_START allow 2>/dev/null || true
+sh_tv appops set $PKG APP_AUTO_START allow 2>/dev/null || true
+sh_tv cmd appops write-settings 2>/dev/null || true
+sh_tv dumpsys deviceidle whitelist +$PKG >/dev/null 2>&1 || true
 # Add your own photos > From a USB drive: read photos on the drive.
 sh_tv pm grant $PKG android.permission.READ_MEDIA_IMAGES || true
 # Makes Haven the default home where the system allows it (Google TV ignores this for the Home key,
