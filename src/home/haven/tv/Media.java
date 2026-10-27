@@ -50,7 +50,13 @@ final class Media {
     private static final String JW_URL = "https://apis.justwatch.com/graphql";
     private static final String JW_IMG = "https://images.justwatch.com";
     private static final long FRESH_MS = 6 * 3600_000L;
-    private static final LruCache<String, Bitmap> POSTERS = new LruCache<String, Bitmap>(24 * 1024 * 1024) {
+    /** Posters in memory: 12 MB on ~2 GB TVs, 24 MB otherwise; dropped when the TV runs low. */
+    static void trim() {
+        POSTERS.evictAll();
+    }
+
+    private static final LruCache<String, Bitmap> POSTERS = new LruCache<String, Bitmap>(
+            (Ui.app() != null && HavenBitmaps.light(Ui.app()) ? 12 : 24) * 1024 * 1024) {
         @Override protected int sizeOf(String k, Bitmap b) {
             return b.getByteCount();
         }

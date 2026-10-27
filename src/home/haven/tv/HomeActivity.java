@@ -97,8 +97,8 @@ public class HomeActivity extends Activity {
     private static final long WEATHER_EVERY_MS = 30 * 60_000, WEATHER_RETRY_MS = 5 * 60_000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ExecutorService bg = Executors.newSingleThreadExecutor();
-    private final ExecutorService net = Executors.newSingleThreadExecutor();
+    private final ExecutorService bg = HavenBitmaps.background(1, "haven-bg");
+    private final ExecutorService net = HavenBitmaps.background(1, "haven-net");
     private final Map<String, Apps.Entry> entries = new LinkedHashMap<>();
 
     private Store store;
@@ -136,10 +136,18 @@ public class HomeActivity extends Activity {
     private int photoColor = Color.WHITE;
     private boolean resumed, navigating, userMoved, pluginSettingsOpen;
     private Updater.Release update;
+    private final Runnable refreshRows = () -> {
+        if (!resumed) return;
+        loadRecents();
+        loadContinue();
+    };
+    /** What each row shows now, so a refresh with the same items changes nothing on screen. */
+    private String recentShown = "";
+    private final java.util.Map<Section, String> rowShown = new java.util.HashMap<>();
     private SettingsPanel settings;
     private static final int REQ_LISTINGS = 43, REQ_LOCATION = 44;
     private static final String[] SECTIONS = {"Wallpaper", "Home screen", "Set up Haven", "System", "About"};
-    private final ExecutorService img = Executors.newFixedThreadPool(2);
+    private final ExecutorService img = HavenBitmaps.background(2, "haven-img");
     // Blur while the remote is in use; the photo goes sharp again after 10 seconds without a press.
     private final Runnable idle = () -> {
         navigating = false;
@@ -162,6 +170,7 @@ public class HomeActivity extends Activity {
         @Override public void onReceive(Context c, Intent i) {
             if (Intent.ACTION_PACKAGE_REMOVED.equals(i.getAction())
                     && i.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
+            Lookups.changed();
             ui.removeCallbacks(reload);
             ui.postDelayed(reload, 800);
         }
@@ -209,8 +218,9 @@ public class HomeActivity extends Activity {
         long stale = SystemClock.elapsedRealtime() - lastWeather;
         ui.removeCallbacks(weatherTick);
         ui.postDelayed(weatherTick, Math.max(0, WEATHER_EVERY_MS - stale));
-        loadRecents();
-        loadContinue();
+        // After Home has drawn, and only once the apps are known (applyEntries loads them on start).
+        ui.removeCallbacks(refreshRows);
+        if (!entries.isEmpty()) ui.postDelayed(refreshRows, 600);
         update = Updater.saved(this);
         undoUninstallIfCancelled();
         settings.refresh(); // statuses may have changed in the TV's settings
@@ -234,11 +244,21 @@ public class HomeActivity extends Activity {
         resumed = false;
         slideshow.pause();
         ui.removeCallbacks(upNextTurn);
+        ui.removeCallbacks(refreshRows);
         ui.removeCallbacks(weatherTick);
         ui.removeCallbacks(rearm);
         ui.removeCallbacks(idle);
         navigating = false;
         if (editKey != null) exitEdit();
+    }
+
+    /** The TV is short of memory: drop pictures that can be made again (as Glassio does). */
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_UI_HIDDEN) {
+            Media.trim();
+            GlassDrawable.trim();
+        }
     }
 
     @Override protected void onDestroy() {
@@ -1179,8 +1199,12 @@ public class HomeActivity extends Activity {
     }
 
     private void fillWatch(Section s, List<WatchNext.Item> items) {
+        StringBuilder key = new StringBuilder();
+        for (WatchNext.Item i : items) key.append(i.pkg).append('/').append(i.title).append('/').append(i.image).append('|');
+        if (key.toString().equals(rowShown.get(s)) && s.row.getChildCount() > 0) return;
         View f = getCurrentFocus();
         if (f != null && f.getParent() instanceof View && s.row.indexOfChild((View) f.getParent()) >= 0) return;
+        rowShown.put(s, key.toString());
         s.row.removeAllViews();
         for (WatchNext.Item i : items) s.add(continueCell(i, s));
         s.box.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
@@ -1273,6 +1297,14 @@ public class HomeActivity extends Activity {
         bg.execute(() -> {
             List<String> pkgs = Apps.recentPackages(this, fallback);
             ui.post(() -> {
+                List<String> shown = new ArrayList<>();
+                for (String pkg : pkgs) {
+                    if (entries.containsKey(pkg)) shown.add(pkg);
+                    if (shown.size() == 10) break;
+                }
+                String key = String.join("|", shown) + "#" + entries.size();
+                if (key.equals(recentShown) && recentSec.row.getChildCount() > 0) return;
+                recentShown = key;
                 View f = getCurrentFocus();
                 boolean hadFocus = f != null && f.getTag() instanceof String && ((String) f.getTag()).startsWith("recent:");
                 recentSec.row.removeAllViews();
@@ -1821,8 +1853,14 @@ public class HomeActivity extends Activity {
         startWiggle(tile);
     }
 
+    private boolean editDirty;
+
     private void exitEdit() {
         editKey = null;
+        if (editDirty) {
+            editDirty = false;
+            store.save();
+        }
         hint.setVisibility(View.GONE);
         if (wiggle != null) {
             wiggle.cancel();
@@ -1885,7 +1923,7 @@ public class HomeActivity extends Activity {
                 setOrder(g);
             }
         } else return;
-        store.save();
+        editDirty = true; // saved once when editing ends, not on every press
         rebuild();
         focusLater(k);
     }
@@ -2134,7 +2172,7 @@ public class HomeActivity extends Activity {
         wall.add(SettingsPanel.choice("Wallpaper", "Haven's photos, yours, movie art or a Projectivy plugin",
                 () -> sources.get(currentSource)[1], dir -> {
                     int n = (currentSource + dir + sources.size()) % sources.size();
-                    prefs.edit().putString(Slideshow.SOURCE_KEY, sources.get(n)[0]).commit();
+                    prefs.edit().putString(Slideshow.SOURCE_KEY, sources.get(n)[0]).apply();
                     slideshow.reload();
                 }));
         Plugins.Info wallPlugin = sourceId.startsWith("haven:") ? null : Plugins.byId(this, sourceId);
@@ -2192,7 +2230,7 @@ public class HomeActivity extends Activity {
                 () -> currentPack == 0 ? "None" : packs.get(currentPack - 1).name, dir -> {
                     if (packs.isEmpty()) return;
                     int n = (currentPack + dir + packs.size() + 1) % (packs.size() + 1);
-                    prefs.edit().putString(IconPacks.PREF, n == 0 ? "" : packs.get(n - 1).pkg).commit();
+                    prefs.edit().putString(IconPacks.PREF, n == 0 ? "" : packs.get(n - 1).pkg).apply();
                     reloadEntries();
                 }));
         home.add(SettingsPanel.action("Account badge", "Google hides your name from other apps, so pick a letter",
@@ -2542,6 +2580,7 @@ public class HomeActivity extends Activity {
                     .setMessage("Removes the photos you added to Haven. Haven's own photos stay.")
                     .setPositiveButton("Delete", (d, w) -> bg.execute(() -> {
                         PhotoImport.deleteAll(this);
+                        Lookups.changed();
                         ui.post(slideshow::reload);
                     }))
                     .setNegativeButton("Cancel", null)
@@ -2638,6 +2677,7 @@ public class HomeActivity extends Activity {
         Toast.makeText(this, "Looking for photos on the USB drive…", Toast.LENGTH_SHORT).show();
         bg.execute(() -> {
             int n = PhotoImport.importFromUsb(this);
+            Lookups.changed();
             ui.post(() -> {
                 Toast.makeText(this, n == 0 ? "No new photos found on the USB drive"
                         : "Added " + n + (n == 1 ? " photo" : " photos") + " from the USB drive", Toast.LENGTH_LONG).show();

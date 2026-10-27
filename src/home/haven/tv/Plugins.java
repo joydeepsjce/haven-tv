@@ -65,7 +65,18 @@ final class Plugins {
     private Plugins() { }
 
     /** Installed plugins that speak API version 1, by name. */
-    static List<Info> find(Context c) {
+    private static List<Info> cached;
+    private static int cachedAt = -1;
+
+    /** Remembered until apps change (see Lookups). */
+    static synchronized List<Info> find(Context c) {
+        if (cached != null && cachedAt == Lookups.generation()) return new ArrayList<>(cached);
+        cachedAt = Lookups.generation();
+        cached = scan(c);
+        return new ArrayList<>(cached);
+    }
+
+    private static List<Info> scan(Context c) {
         PackageManager pm = c.getPackageManager();
         List<Info> out = new ArrayList<>();
         for (ResolveInfo r : pm.queryIntentServices(new Intent(ACTION), PackageManager.GET_META_DATA)) {

@@ -87,6 +87,13 @@ final class GlassDrawable extends Drawable {
         return g;
     }
 
+    /** Low memory: forget the shared sheen/rim images (they're redrawn on demand). */
+    static void trim() {
+        synchronized (FACES) {
+            FACES.clear();
+        }
+    }
+
     /** The wallpaper changed: redraw just the frosted shapes. */
     static void backdropChanged() {
         synchronized (FROSTED) {

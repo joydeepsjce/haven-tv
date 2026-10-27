@@ -90,7 +90,7 @@ final class Slideshow {
     private final long intervalMs;
     private final Listener listener;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ExecutorService bg = Executors.newSingleThreadExecutor();
+    private final ExecutorService bg = HavenBitmaps.background(1, "haven-slides");
     private final Map<String, String[]> credits = new HashMap<>();
     private final Runnable next = this::showNext;
     private FrameLayout front, back;
@@ -412,7 +412,16 @@ final class Slideshow {
         return c.getExternalFilesDir("wallpapers");
     }
 
-    static int myPhotoCount(Context c) {
+    private static int photoCount = -1, photoCountAt = -1;
+
+    /** Remembered until photos are added or deleted (see Lookups). */
+    static synchronized int myPhotoCount(Context c) {
+        if (photoCount >= 0 && photoCountAt == Lookups.generation()) return photoCount;
+        photoCountAt = Lookups.generation();
+        return photoCount = countPhotos(c);
+    }
+
+    private static int countPhotos(Context c) {
         File dir = myPhotosDir(c);
         File[] files = dir != null ? dir.listFiles() : null;
         int n = 0;
@@ -484,20 +493,29 @@ final class Slideshow {
                 b.eraseColor(Color.parseColor(item.src.trim()));
                 return b;
             }
-            byte[] data = read(item.src);
-            if (data == null) return null;
+            // Web images are cached as files first; everything is then decoded straight from its
+            // stream (no copy of the whole file in memory).
+            String src = item.src.startsWith("http://") || item.src.startsWith("https://") ? cached(item.src) : item.src;
+            if (src == null) return null;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            try (InputStream in = open(src)) { BitmapFactory.decodeStream(in, null, o); }
             if (o.outWidth <= 0) return item.src.startsWith("android.resource:") ? drawable(item.src) : null;
-            int w = c.getResources().getDisplayMetrics().widthPixels, sample = 1;
-            while (o.outWidth / (sample * 2) >= w) sample *= 2;
-            o = new BitmapFactory.Options();
-            o.inSampleSize = sample;
-            return BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            return HavenBitmaps.coverScreen(c, o.outWidth, o.outHeight, opts -> {
+                try (InputStream in = open(src)) {
+                    return BitmapFactory.decodeStream(in, null, opts);
+                }
+            });
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             return item.src.startsWith("android.resource:") ? drawable(item.src) : null;
         }
+    }
+
+    /** A web image's cached file path, downloading it the first time; null if it can't be fetched. */
+    private String cached(String url) throws IOException {
+        read(url);
+        File f = new File(new File(c.getCacheDir(), "plugin-walls"), Integer.toHexString(url.hashCode()) + "-" + url.length());
+        return f.isFile() ? f.getAbsolutePath() : null;
     }
 
     /** The image's bytes. Web images are kept in Haven's cache so each one downloads once. */

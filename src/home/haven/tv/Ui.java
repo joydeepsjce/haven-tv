@@ -143,7 +143,7 @@ final class Ui {
     static void focus(View tile, boolean has, float scale) {
         Context c = tile.getContext();
         DecelerateInterpolator ease = new DecelerateInterpolator(2f);
-        tile.setForeground(has ? ring(tile) : null);
+        tile.setForeground(has ? withGlass(tile, ring(tile)) : glassOf(tile));
         if (has) focused = new java.lang.ref.WeakReference<>(tile);
         if (has) {
             float tilt = 7f;
@@ -172,6 +172,21 @@ final class Ui {
         }
     }
 
+    /** The tile's own glass overlay (rim and sheen), remembered so focus can put it back. */
+    private static Drawable glassOf(View tile) {
+        Object g = tile.getTag(R.id.glass_overlay);
+        if (g == null && tile.getForeground() instanceof GlassDrawable) {
+            g = tile.getForeground();
+            tile.setTag(R.id.glass_overlay, g);
+        }
+        return g instanceof Drawable ? (Drawable) g : null;
+    }
+
+    private static Drawable withGlass(View tile, Drawable ring) {
+        Drawable glass = glassOf(tile);
+        return glass == null ? ring : new android.graphics.drawable.LayerDrawable(new Drawable[]{glass, ring});
+    }
+
     private static Drawable ring(View tile) {
         Context c = tile.getContext();
         GradientDrawable g = new GradientDrawable();
@@ -185,7 +200,7 @@ final class Ui {
     static void setAccent(int color) {
         accent = color;
         View v = focused != null ? focused.get() : null;
-        if (v != null && v.isFocused()) v.setForeground(ring(v));
+        if (v != null && v.isFocused()) v.setForeground(withGlass(v, ring(v)));
     }
 
     /** A bright, readable version of a photo's main colour; white when the photo is too grey. */

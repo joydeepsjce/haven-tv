@@ -49,7 +49,7 @@ final class PhotoImport {
     static final class Upload {
         final String url;
         private final ServerSocket server;
-        private final ExecutorService pool = Executors.newFixedThreadPool(3);
+        private final ExecutorService pool = HavenBitmaps.background(3, "haven-upload");
         private final File dir;
         private final String code;
         private final IntConsumer onAdded;
@@ -142,6 +142,7 @@ final class PhotoImport {
                 tmp.delete();
                 return "That isn't a photo Haven can show.";
             }
+            HavenBitmaps.shrinkFile(Ui.app(), tmp);
             File dest = unique(dir, clean);
             if (!tmp.renameTo(dest)) {
                 tmp.delete();
@@ -151,6 +152,7 @@ final class PhotoImport {
                 added++;
             }
             int n = added;
+            Lookups.changed();
             ui.post(() -> onAdded.accept(n));
             return null;
         }
@@ -260,8 +262,12 @@ final class PhotoImport {
                 dest.delete();
                 continue;
             }
-            if (isPhoto(dest)) added++;
-            else dest.delete();
+            if (isPhoto(dest)) {
+                HavenBitmaps.shrinkFile(c, dest);
+                added++;
+            } else {
+                dest.delete();
+            }
         }
         return added;
     }

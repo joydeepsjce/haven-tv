@@ -77,7 +77,18 @@ final class IconPacks {
     private IconPacks() { }
 
     /** Installed icon packs, by name. */
-    static List<Info> find(Context c) {
+    private static List<Info> found;
+    private static int foundAt = -1;
+
+    /** Remembered until apps change (see Lookups). */
+    static synchronized List<Info> find(Context c) {
+        if (found != null && foundAt == Lookups.generation()) return new ArrayList<>(found);
+        foundAt = Lookups.generation();
+        found = scan(c);
+        return new ArrayList<>(found);
+    }
+
+    private static List<Info> scan(Context c) {
         PackageManager pm = c.getPackageManager();
         Map<String, Info> out = new LinkedHashMap<>();
         for (String action : ACTIONS) {

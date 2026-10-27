@@ -66,14 +66,20 @@ final class Keeper {
         if (c.getSharedPreferences("haven", Context.MODE_PRIVATE).getBoolean(RESTRICTED_ALLOWED, false)) return false;
         // Apps can't read this app-op themselves, so go by how Haven was installed: Android
         // restricts apps installed from a local or downloaded file, not adb or store installs.
-        try {
-            int source = c.getPackageManager().getInstallSourceInfo(c.getPackageName()).getPackageSource();
-            return source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE
-                    || source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE;
-        } catch (Exception e) {
-            return false;
+        if (installedFromFile == null) {
+            try {
+                int source = c.getPackageManager().getInstallSourceInfo(c.getPackageName()).getPackageSource();
+                installedFromFile = source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE
+                        || source == android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE;
+            } catch (Exception e) {
+                installedFromFile = false;
+            }
         }
+        return installedFromFile;
     }
+
+    /** How this copy of Haven was installed; doesn't change while it runs. */
+    private static Boolean installedFromFile;
 
     /** Set once Fix Home button has allowed restricted settings (the shell reported "allow"). */
     static final String RESTRICTED_ALLOWED = "restrictedAllowed";
