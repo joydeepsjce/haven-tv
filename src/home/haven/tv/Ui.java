@@ -31,7 +31,15 @@ final class Ui {
 
     private Ui() { }
 
+    private static Context appContext;
+
+    /** The app's context, for sizes in places that have no view at hand. */
+    static Context app() {
+        return appContext;
+    }
+
     static void init(Context c) {
+        appContext = c.getApplicationContext();
         if (regular != null) return;
         light = font(c, "Inter-Light.ttf", "sans-serif-light");
         regular = font(c, "Inter-Regular.ttf", "sans-serif");
@@ -80,7 +88,7 @@ final class Ui {
         FrameLayout tile = new FrameLayout(c);
         tile.setOutlineProvider(rounded(dp(c, wDp >= 200 ? 16 : 12)));
         tile.setClipToOutline(true);
-        tile.setElevation(dp(c, 2));
+        tile.setElevation(0); // shadow only when focused (translationZ), not on every tile
         tile.setCameraDistance(8000 * c.getResources().getDisplayMetrics().density);
         tile.setLayoutParams(new FrameLayout.LayoutParams(dp(c, wDp), dp(c, hDp)));
         float radius = dp(c, wDp >= 200 ? 16 : 12);

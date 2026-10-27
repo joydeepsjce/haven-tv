@@ -1,7 +1,5 @@
 package home.haven.tv;
 
-import android.animation.ObjectAnimator;
-import android.animation.PropertyValuesHolder;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -15,7 +13,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.View;
-import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
@@ -43,7 +40,7 @@ import tv.projectivy.plugin.wallpaperprovider.api.Event;
 import tv.projectivy.plugin.wallpaperprovider.api.Wallpaper;
 
 /**
- * Rotating wallpapers with a cross-fade and a slow zoom. Each slide also carries a blurred
+ * Rotating wallpapers with a cross-fade. Each slide also carries a blurred
  * copy that fades in behind the app grid and folders, like tvOS. The photos are Haven's own,
  * or come from a Projectivy wallpaper plugin chosen in Haven Settings (see {@link Plugins}).
  */
@@ -97,7 +94,8 @@ final class Slideshow {
     private final Map<String, String[]> credits = new HashMap<>();
     private final Runnable next = this::showNext;
     private FrameLayout front, back;
-    private ObjectAnimator zoom;
+    /** 0..1: how much darker the photo is drawn (Wallpaper brightness, scroll), as a filter, not an extra layer. */
+    private float dim, scrollDim;
     private List<Item> photos;
     private int index = -1;
     private long lastChange, fetchedAt;
@@ -210,8 +208,12 @@ final class Slideshow {
     }
 
     private FrameLayout slide() {
-        FrameLayout f = new FrameLayout(c);
-        f.setBackgroundColor(Color.BLACK);
+        FrameLayout f = new FrameLayout(c) {
+            // Fading a slide doesn't need an offscreen layer: its children are opaque photos.
+            @Override public boolean hasOverlappingRendering() {
+                return false;
+            }
+        };
         ImageView photo = new ImageView(c);
         photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
         ImageView soft = new ImageView(c);
@@ -222,11 +224,39 @@ final class Slideshow {
         return f;
     }
 
+    /** Wallpaper brightness: {@code amount} 0 (as shot) to 1 (black), drawn as a colour filter. */
+    void setDim(float amount) {
+        dim = Math.max(0f, Math.min(1f, amount));
+        applyDim(front);
+        applyDim(back);
+    }
+
+    /** Extra darkening while the rows are scrolled up over the photo (was a full-screen view). */
+    void setScrollDim(float amount) {
+        float a = Math.max(0f, Math.min(1f, amount));
+        if (Math.abs(a - scrollDim) < 0.01f && a != 0f && a != 1f) return;
+        scrollDim = a;
+        applyDim(front);
+        applyDim(back);
+    }
+
+    private void applyDim(FrameLayout slide) {
+        float total = 1f - (1f - dim) * (1f - scrollDim);
+        android.graphics.ColorFilter f = total <= 0f ? null
+                : new android.graphics.PorterDuffColorFilter(Color.argb(Math.round(total * 255), 6, 8, 12),
+                android.graphics.PorterDuff.Mode.SRC_ATOP);
+        ((ImageView) slide.getChildAt(0)).setColorFilter(f);
+        ((ImageView) slide.getChildAt(1)).setColorFilter(f);
+    }
+
     /** 0 = sharp photo, 1 = fully blurred. */
     void setBlur(float f) {
         blur = f;
-        front.getChildAt(1).setAlpha(f);
-        back.getChildAt(1).setAlpha(f);
+        for (FrameLayout s : new FrameLayout[]{front, back}) {
+            s.getChildAt(1).setAlpha(f);
+            // A fully blurred slide doesn't need the sharp photo drawn underneath it.
+            s.getChildAt(0).setVisibility(f >= 0.99f ? View.INVISIBLE : View.VISIBLE);
+        }
     }
 
     float getBlur() {
@@ -236,7 +266,7 @@ final class Slideshow {
     void start() {
         running = true;
         if (photos == null) return;
-        if (zoom != null) zoom.resume();
+
         long since = SystemClock.uptimeMillis() - lastChange;
         ui.removeCallbacks(next);
         if (lastChange == 0) showNext();
@@ -246,7 +276,7 @@ final class Slideshow {
     void pause() {
         running = false;
         ui.removeCallbacks(next);
-        if (zoom != null) zoom.pause();
+
     }
 
     void release() {
@@ -284,7 +314,6 @@ final class Slideshow {
 
     private void crossfade(Bitmap b, Bitmap soft, Item item) {
         FrameLayout incoming = back, outgoing = front;
-        if (zoom != null) zoom.cancel();
         incoming.animate().cancel();
         ImageView photo = (ImageView) incoming.getChildAt(0);
         photo.setImageBitmap(b);
@@ -297,26 +326,23 @@ final class Slideshow {
         if (mode == Wallpaper.FIT_CENTER_BLURRED_BG && soft != null) {
             incoming.setBackground(new BitmapDrawable(c.getResources(), soft));
         } else {
-            incoming.setBackgroundColor(Color.BLACK);
+            // Black only shows round a letterboxed photo; a cropped photo covers the whole slide.
+            incoming.setBackgroundColor(photo.getScaleType() == ImageView.ScaleType.CENTER_CROP ? Color.TRANSPARENT : Color.BLACK);
         }
+        applyDim(incoming);
         ((ImageView) incoming.getChildAt(1)).setImageBitmap(soft);
-        incoming.getChildAt(1).setAlpha(item.mode == Wallpaper.BLUR ? 1f : blur);
+        float soft2 = item.mode == Wallpaper.BLUR ? 1f : blur;
+        incoming.getChildAt(1).setAlpha(soft2);
+        photo.setVisibility(soft2 >= 0.99f ? View.INVISIBLE : View.VISIBLE);
         incoming.setAlpha(0f);
-        incoming.setScaleX(1f);
-        incoming.setScaleY(1f);
         view.bringChildToFront(incoming);
         incoming.animate().alpha(1f).setDuration(FADE_MS).withEndAction(() -> {
             ((ImageView) outgoing.getChildAt(0)).setImageDrawable(null);
             ((ImageView) outgoing.getChildAt(1)).setImageDrawable(null);
         }).start();
-        zoom = ObjectAnimator.ofPropertyValuesHolder(incoming,
-                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.06f),
-                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.06f));
-        zoom.setDuration(intervalMs + FADE_MS * 2);
-        zoom.setInterpolator(new LinearInterpolator());
-        zoom.start();
         front = incoming;
         back = outgoing;
+        view.setBackground(null); // the photo covers the screen now; black was only for before it
         GlassDrawable.backdrop = soft;
         listener.onSlide(item.title, item.credit, mainColor(soft));
     }

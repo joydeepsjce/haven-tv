@@ -107,7 +107,7 @@ public class HomeActivity extends Activity {
     private int tickId;
     private int screenH;
     private FrameLayout root, overlay;
-    private View dim, creditBox, clockBox;
+    private View creditBox, clockBox;
     private TextView creditTitle, creditLine, weather, appsTitle, overlayTitle, hint;
     private ScrollView scroller;
     private HorizontalScrollView dockScroll;
@@ -129,7 +129,6 @@ public class HomeActivity extends Activity {
             turnUpNext(1);
         }
     };
-    private View shade;
     private String overlayId, editKey;
     private ObjectAnimator wiggle;
     private ValueAnimator blurAnim;
@@ -416,15 +415,11 @@ public class HomeActivity extends Activity {
 
     private void buildLayout() {
         root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
 
         slideshow = new Slideshow(this, WALL_INTERVAL_MS, this::showCredit);
         root.addView(slideshow.view, match());
-        // Wallpaper brightness (Haven Settings): a black shade over the photo.
-        shade = new View(this);
-        shade.setBackgroundColor(Color.BLACK);
-        shade.setAlpha((100 - store.brightness) / 100f);
-        root.addView(shade, match());
+        // Wallpaper brightness (Haven Settings): darkens the photo itself, no extra full-screen layer.
+        slideshow.setDim((100 - store.brightness) / 100f);
 
         View topScrim = new View(this);
         topScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
@@ -435,10 +430,6 @@ public class HomeActivity extends Activity {
                 new int[]{0xCC000000, 0x55000000, 0x00000000}));
         root.addView(bottomScrim, new FrameLayout.LayoutParams(-1, dp(260), Gravity.BOTTOM));
 
-        dim = new View(this);
-        dim.setBackgroundColor(0xFF06080C);
-        dim.setAlpha(0f);
-        root.addView(dim, match());
 
         scroller = new ScrollView(this) {
             // All scrolling is driven by focus listeners so it is always smooth.
@@ -476,7 +467,7 @@ public class HomeActivity extends Activity {
         }
 
         appsTitle = Ui.text(this, "Apps", 18, Ui.semibold);
-        appsTitle.setAlpha(0.9f);
+        appsTitle.setTextColor(0xE6FFFFFF);
         appsTitle.setPadding(dp(SIDE), dp(30), dp(SIDE), dp(4));
         content.addView(appsTitle);
 
@@ -487,7 +478,7 @@ public class HomeActivity extends Activity {
         scroller.addView(content);
         scroller.setOnScrollChangeListener((v, x, y, ox, oy) -> {
             float f = scrollFraction();
-            dim.setAlpha(f * 0.35f);
+            slideshow.setScrollDim(f * 0.35f);
             creditBox.setAlpha(1f - f);
             if (overlayId == null && (blurAnim == null || !blurAnim.isRunning())) slideshow.setBlur(blurTarget());
             // Fade the tabs and clock as the dock scrolls up underneath them; they return with the dock.
@@ -515,10 +506,10 @@ public class HomeActivity extends Activity {
         date.setFormat12Hour("EEEE, d MMMM");
         date.setFormat24Hour("EEEE, d MMMM");
         Ui.style(date, 13, Ui.regular);
-        date.setAlpha(0.9f);
+        date.setTextColor(0xE6FFFFFF);
         String w = getSharedPreferences("haven", MODE_PRIVATE).getString("weather", "");
         weather = Ui.text(this, w.replace("·", "").trim(), 13, Ui.regular);
-        weather.setAlpha(0.9f);
+        weather.setTextColor(0xE6FFFFFF);
         clock.addView(time, new LinearLayout.LayoutParams(-2, -2));
         clock.addView(date, new LinearLayout.LayoutParams(-2, -2));
         clock.addView(weather, new LinearLayout.LayoutParams(-2, -2));
@@ -526,7 +517,7 @@ public class HomeActivity extends Activity {
         credit.setGravity(Gravity.END);
         creditTitle = Ui.text(this, "", 11, Ui.medium);
         creditLine = Ui.text(this, "", 9, Ui.regular);
-        creditLine.setAlpha(0.7f);
+        creditLine.setTextColor(0xB3FFFFFF);
         // Plugin photos can come with long captions: keep the credit to a narrow column.
         for (TextView t : new TextView[]{creditTitle, creditLine}) {
             t.setGravity(Gravity.END);
@@ -578,18 +569,21 @@ public class HomeActivity extends Activity {
         settings = new SettingsPanel(this, this::settingsModel, this::onSettingsClosed);
         root.addView(settings.view, match());
         setContentView(root);
+        // The slideshow paints the whole screen (black under a letterboxed photo); no window fill under it.
+        getWindow().setBackgroundDrawable(null);
     }
 
     private void showCredit(String title, String line, int color) {
         photoColor = color;
-        invalidateAll(root);
+        invalidateAll(topBar); // the tab capsule's tint follows the photo
+        GlassDrawable.backdropChanged();
         Ui.setAccent(store.dynColor ? Ui.accentFrom(color) : Color.WHITE);
         creditTitle.setText(title);
         creditLine.setText(line);
         creditTitle.setAlpha(0f);
         creditTitle.animate().alpha(1f).setDuration(1800).start();
         creditLine.setAlpha(0f);
-        creditLine.animate().alpha(0.7f).setDuration(1800).start();
+        creditLine.animate().alpha(1f).setDuration(1800).start();
     }
 
     private float scrollFraction() {
@@ -812,7 +806,7 @@ public class HomeActivity extends Activity {
         FrameLayout tile = new FrameLayout(this);
         tile.setOutlineProvider(Ui.rounded(dp(12)));
         tile.setClipToOutline(true);
-        tile.setElevation(dp(2));
+        tile.setElevation(0);
         tile.setCameraDistance(8000 * getResources().getDisplayMetrics().density);
         // Opaque: a see-through plate shows the tile's own shadow through it.
         tile.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
@@ -990,7 +984,7 @@ public class HomeActivity extends Activity {
         tile.setBackground(new GlassDrawable(tile, dp(16), 0x1FFFFFFF, 0.8f));
         tile.setOutlineProvider(Ui.rounded(dp(16)));
         tile.setClipToOutline(true);
-        tile.setElevation(dp(2));
+        tile.setElevation(0);
         tile.setFocusable(true);
         tile.setClickable(true);
         tile.setTag("upnext");
@@ -1045,7 +1039,7 @@ public class HomeActivity extends Activity {
         v.title.setEllipsize(TextUtils.TruncateAt.END);
         text.addView(v.title, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(4); }});
         v.episode = Ui.text(this, "", 13, Ui.regular);
-        v.episode.setAlpha(0.85f);
+        v.episode.setTextColor(0xD9FFFFFF);
         v.episode.setSingleLine(true);
         v.episode.setEllipsize(TextUtils.TruncateAt.END);
         text.addView(v.episode);
@@ -1073,7 +1067,7 @@ public class HomeActivity extends Activity {
         v.action.setPadding(dp(14), dp(4), dp(14), dp(5));
         actions.addView(v.action);
         v.pct = Ui.text(this, "", 12, Ui.regular);
-        v.pct.setAlpha(0.8f);
+        v.pct.setTextColor(0xCCFFFFFF);
         v.pct.setPadding(dp(10), 0, 0, 0);
         actions.addView(v.pct);
         text.addView(actions, new LinearLayout.LayoutParams(-2, -2) {{ topMargin = dp(9); }});
@@ -1200,7 +1194,7 @@ public class HomeActivity extends Activity {
         FrameLayout tile = new FrameLayout(this);
         tile.setOutlineProvider(Ui.rounded(dp(10)));
         tile.setClipToOutline(true);
-        tile.setElevation(dp(2));
+        tile.setElevation(0);
         tile.setCameraDistance(8000 * getResources().getDisplayMetrics().density);
         tile.setBackgroundColor(0xFF22252B);
         tile.setForeground(GlassDrawable.overlay(tile, dp(10), 0.7f));
@@ -2160,7 +2154,7 @@ public class HomeActivity extends Activity {
         wall.add(SettingsPanel.choice("Brightness", "Darkens the photo behind the rows", () -> store.brightness + "%", dir -> {
             store.brightness = Math.max(55, Math.min(100, store.brightness + dir * 15));
             store.save();
-            shade.animate().alpha((100 - store.brightness) / 100f).setDuration(250).start();
+            slideshow.setDim((100 - store.brightness) / 100f);
         }));
         String[] blurs = {"Off", "Low", "Medium", "High"};
         wall.add(SettingsPanel.choice("Background blur", "While you use the remote", () -> blurs[store.blurLevel], dir -> {
@@ -2768,8 +2762,17 @@ public class HomeActivity extends Activity {
 
     // ---------------------------------------------------------------- helpers
 
+    /** A LinearLayout that fades without an offscreen layer (its children don't overlap). */
+    private LinearLayout flatLayout() {
+        return new LinearLayout(this) {
+            @Override public boolean hasOverlappingRendering() {
+                return false;
+            }
+        };
+    }
+
     private LinearLayout row() {
-        LinearLayout r = new LinearLayout(this);
+        LinearLayout r = flatLayout();
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setClipChildren(false);
         r.setClipToPadding(false);
@@ -2777,7 +2780,7 @@ public class HomeActivity extends Activity {
     }
 
     private LinearLayout column() {
-        LinearLayout c = new LinearLayout(this);
+        LinearLayout c = flatLayout();
         c.setOrientation(LinearLayout.VERTICAL);
         c.setClipChildren(false);
         c.setClipToPadding(false);
