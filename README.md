@@ -40,7 +40,7 @@ about 1.5 MB and Haven uses around 80 MB of memory on a 2.5 GB TV.
   channels app by default; hold OK on it to open any app you like instead) and TV Settings.
 - **Live TV** opens the HDMI port your set-top box is on: the one it finds over HDMI-CEC, else the
   only port with something connected, else the last port you used. Hold OK on Live TV to pick a
-  port yourself or use the TV's own Live TV app.
+  port yourself or use the TV's own Live TV app (also in Haven Settings > Home screen).
 - **Search**: a full-screen search bar that finds apps as you type, with "Search all your apps"
   (Google's search) and "Search YouTube". The mic types what you say into the search box.
 - **Wallpapers**: Bing's photo of the day (the default) or Wikimedia's Picture of the Day, with

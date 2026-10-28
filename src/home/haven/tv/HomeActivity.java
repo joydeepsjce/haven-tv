@@ -1587,6 +1587,17 @@ public class HomeActivity extends Activity {
         }
     }
 
+    /** What Live TV opens now, for Settings: "Auto · HDMI 1", "HDMI 2", or "TV's app". */
+    private String liveTvValue() {
+        String chosen = getSharedPreferences("haven", MODE_PRIVATE).getString(Inputs.CHOSEN, "");
+        String port = Inputs.liveTvPort(this);
+        String name = "TV's app";
+        if (port != null) {
+            for (Inputs.Port p : Inputs.ports(this)) if (p.id.equals(port)) name = p.name();
+        }
+        return chosen.isEmpty() ? "Auto · " + name : name;
+    }
+
     /** Hold OK on Live TV: pick its port, or let Haven find it again. */
     private void chooseLiveTv(boolean hasApp) {
         List<Inputs.Port> ports = Inputs.ports(this);
@@ -1605,8 +1616,10 @@ public class HomeActivity extends Activity {
         }
         new GlassDialog(this)
                 .setTitle("Live TV opens")
-                .setItems(names.toArray(new String[0]), (d, which) ->
-                        prefs.edit().putString(Inputs.CHOSEN, ids.get(which)).apply())
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    prefs.edit().putString(Inputs.CHOSEN, ids.get(which)).apply();
+                    if (settings != null && settings.isOpen()) settings.refresh();
+                })
                 .show();
     }
 
@@ -2426,6 +2439,8 @@ public class HomeActivity extends Activity {
                     prefs.edit().putString(IconPacks.PREF, n == 0 ? "" : packs.get(n - 1).pkg).apply();
                     reloadEntries();
                 }));
+        home.add(SettingsPanel.action("Live TV button", "The HDMI port Live TV opens (hold OK on it too)",
+                () -> liveTvValue() + "  ›", () -> chooseLiveTv(!liveTv.isEmpty())));
         home.add(SettingsPanel.action("Free TV button", "The app the Free TV tab opens (hold OK on it too)", () -> {
             String pkg = freeTvApp();
             return (pkg == null ? "Off" : appLabel(pkg)) + "  ›";
