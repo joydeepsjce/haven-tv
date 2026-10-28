@@ -1502,28 +1502,15 @@ public class HomeActivity extends Activity {
                 if (first != null) first.requestFocus();
             }
         }, false));
-        // The TV maker's free-channel app, if there is one, as "Channels", drawn with its own icon.
-        String channels = null;
-        Intent chan = null;
-        for (String p : CHANNEL_APPS) {
-            chan = launchIntent(p);
-            if (chan != null) { channels = p; break; }
-        }
+        // Free TV: the app you wired to it, else the TV maker's free-channel app, with a generic icon.
+        String channels = freeTvApp();
+        Intent chan = channels != null ? launchIntent(channels) : null;
         if (chan != null) {
             Intent open = chan;
-            View t = tab(R.drawable.ic_tab_tv, "Channels", "Channels (" + appLabel(channels) + ")", () -> {
+            View t = tab(R.drawable.ic_tab_freetv, "Free TV", "Free TV (" + appLabel(channels) + ")", () -> {
                 try { startActivity(open); } catch (Exception ignored) { }
             }, false);
-            try {
-                android.widget.ImageView iv = (android.widget.ImageView) ((ViewGroup) t).getChildAt(0);
-                iv.setImageTintList(null);
-                iv.setImageDrawable(getPackageManager().getApplicationIcon(channels));
-                // Black and white, to sit with the other monochrome icons.
-                android.graphics.ColorMatrix grey = new android.graphics.ColorMatrix();
-                grey.setSaturation(0f);
-                iv.setColorFilter(new android.graphics.ColorMatrixColorFilter(grey));
-                iv.setTag("keepColour");
-            } catch (Exception ignored) { }
+            t.setOnLongClickListener(v -> { chooseFreeTv(); return true; });
             tabs.addView(t);
         }
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
@@ -1536,6 +1523,54 @@ public class HomeActivity extends Activity {
             } catch (Exception ignored) { }
         }));
         return bar;
+    }
+
+    /** Haven setting: the app the Free TV tab opens ("" for the TV maker's, "none" for no tab). */
+    private static final String FREE_TV = "freeTvApp";
+
+    /** The TV maker's free-channel app, or null if this TV has none. */
+    private String makerFreeTv() {
+        for (String p : CHANNEL_APPS) if (launchIntent(p) != null) return p;
+        return null;
+    }
+
+    /** The package Free TV opens, or null for no Free TV tab. */
+    private String freeTvApp() {
+        String chosen = getSharedPreferences("haven", MODE_PRIVATE).getString(FREE_TV, "");
+        if ("none".equals(chosen)) return null;
+        if (!chosen.isEmpty() && launchIntent(chosen) != null) return chosen;
+        return makerFreeTv();
+    }
+
+    /** Hold OK on Free TV (or Settings > Home screen): wire any app to it, or go back to the TV maker's. */
+    private void chooseFreeTv() {
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        String chosen = prefs.getString(FREE_TV, "");
+        String maker = makerFreeTv();
+        List<String> names = new ArrayList<>(), pkgs = new ArrayList<>();
+        names.add((chosen.isEmpty() ? "✓  " : "") + (maker != null ? "TV maker's app (" + appLabel(maker) + ")" : "TV maker's app (none on this TV)"));
+        pkgs.add("");
+        names.add(("none".equals(chosen) ? "✓  " : "") + "Don't show Free TV");
+        pkgs.add("none");
+        List<Apps.Entry> apps = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Apps.Entry e : entries.values()) {
+            if (e.pkg == null || e.key.startsWith("input:") || e.pkg.equals(getPackageName()) || !seen.add(e.pkg)) continue;
+            apps.add(e);
+        }
+        java.util.Collections.sort(apps, (a, b) -> labelOf(a.key).compareToIgnoreCase(labelOf(b.key)));
+        for (Apps.Entry e : apps) {
+            names.add((e.pkg.equals(chosen) ? "✓  " : "") + labelOf(e.key));
+            pkgs.add(e.pkg);
+        }
+        new GlassDialog(this)
+                .setTitle("Free TV opens")
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    if (pkgs.get(which).equals(chosen)) return;
+                    prefs.edit().putString(FREE_TV, pkgs.get(which)).apply();
+                    recreate(); // rebuilds the top bar with the new app
+                })
+                .show();
     }
 
     /** Live TV on the port the TV box is on (see {@link Inputs#liveTvPort}), else the TV's Live TV app. */
@@ -1589,7 +1624,7 @@ public class HomeActivity extends Activity {
         try {
             return String.valueOf(getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)));
         } catch (Exception e) {
-            return "Channels";
+            return "Free TV";
         }
     }
 
@@ -2391,6 +2426,10 @@ public class HomeActivity extends Activity {
                     prefs.edit().putString(IconPacks.PREF, n == 0 ? "" : packs.get(n - 1).pkg).apply();
                     reloadEntries();
                 }));
+        home.add(SettingsPanel.action("Free TV button", "The app the Free TV tab opens (hold OK on it too)", () -> {
+            String pkg = freeTvApp();
+            return (pkg == null ? "Off" : appLabel(pkg)) + "  ›";
+        }, this::chooseFreeTv));
         home.add(SettingsPanel.action("Account badge", "Google hides your name from other apps, so pick a letter",
                 () -> store.accountLetter.isEmpty() ? "Icon" : store.accountLetter,
                 () -> askName("Letter for the account badge (empty for an icon)", "", false, name -> {
