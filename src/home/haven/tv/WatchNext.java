@@ -27,6 +27,10 @@ final class WatchNext {
         float progress = -1;
         /** "S2 · E4" style season and episode, or "" when the app doesn't say. */
         String episode = "";
+        /** A title logo to draw on the card (TMDB), or "". */
+        String logo = "";
+        /** The picture has no title in it (a backdrop): the card shows the title over it. */
+        boolean textless;
 
         Item(String title, String subtitle, String image, String pkg, Intent intent) {
             this.title = title;

@@ -28,13 +28,19 @@ about 1.5 MB and Haven uses around 80 MB of memory on a 2.5 GB TV.
     you got and Resume. It turns to your next in-progress title every 5 seconds (pausing
     while you use the remote); the ‹ › arrows (Left/Right) step through them yourself.
   - **Top picks for you**: a few programs from each app's home-screen channels, mixed so no
-    single app takes over, plus what's trending on Netflix in your country.
+    single app takes over, plus what's popular on Netflix in your country, shown with a wide
+    picture and the title's logo. Any app that publishes Android TV's standard rows shows up here
+    and in Up next, in any country (Stremio, for example).
   - **Recent**: your recently used apps.
   - **Favourites**: the dock.
-  - **Inputs**: Live TV and HDMI.
+  - **Inputs**: Live TV and HDMI, with ports that have something plugged in first.
   - **Apps**: every app, which you can sort, put in folders, rename or hide.
-- **Top bar** (press Up): account, search, Home, Live TV and the maker's channels app when the
-  TV has them, Inputs and TV Settings.
+  - Each row except Apps can be turned off in Haven Settings > Home screen.
+- **Top bar** (press Up): account, search, Home, Live TV, Inputs, Channels (the TV maker's free
+  channels app, when there is one) and TV Settings.
+- **Live TV** opens the HDMI port your set-top box is on: the one it finds over HDMI-CEC, else the
+  only port with something connected, else the last port you used. Hold OK on Live TV to pick a
+  port yourself or use the TV's own Live TV app.
 - **Search**: a full-screen search bar that finds apps as you type, with "Search all your apps"
   (Google's search) and "Search YouTube". The mic types what you say into the search box.
 - **Wallpapers**: Bing's photo of the day (the default) or Wikimedia's Picture of the Day, with
@@ -138,7 +144,7 @@ asks you to confirm. If you cancel, Haven puts everything back. From a computer:
 | `WRITE_SECURE_SETTINGS` (computer setup only) | Starts the Home-button service again if something turns it off, sets animation speed to 0.5×, and keeps a backup of the layout (which apps are where, nothing personal). |
 | Usage access | Lists recent apps in the Recent row, including ones not opened from Haven. Optional. |
 | `ACCESS_COARSE_LOCATION` | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
-| `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), the daily wallpaper (bing.com or api.wikimedia.org and upload.wikimedia.org), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
+| `INTERNET` | Weather (api.open-meteo.com), Netflix titles (api.themoviedb.org and image.tmdb.org, or JustWatch's public API), the daily wallpaper (bing.com or api.wikimedia.org and upload.wikimedia.org), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
 | Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
 | Uninstall (`REQUEST_DELETE_PACKAGES`) | Only for Settings > System > Uninstall Haven, which opens Android's own uninstall confirmation for Haven. |
 | The TV's own debugging (127.0.0.1) | Only when you choose Fix / Keep the Home button on: Haven connects to the TV's adb with its own key (you approve it on the TV once) to allow "restricted settings" and grant the permissions above, then disconnects. |
@@ -176,6 +182,8 @@ ANDROID_HOME=/path/to/android-sdk sh build.sh
 The output is `build/haven.apk`. Builds on Linux, macOS and Windows (Git Bash). The first build
 creates your own signing key, `haven.keystore`. Keep it: updates must be signed with the same key,
 and reinstalling loses the adb-granted permissions. Set `KS_PASS` to choose its password.
+For TMDB artwork in Top picks, pass your own free TMDB API key as `TMDB_KEY=...` (or a file with
+`TMDB_KEY_FILE=path`); it's written only into `build/`. Without one, Haven uses JustWatch.
 
 ## Tested on
 
@@ -186,8 +194,9 @@ Reports are welcome.
 ## Notes
 
 - Netflix doesn't publish its rows to the TV, so its titles come from
-  [JustWatch](https://www.justwatch.com)'s unofficial public API and open in Google's search for
-  that title. If JustWatch changes its API, they simply stop appearing.
+  [TMDB](https://www.themoviedb.org) (when Haven is built with a TMDB API key, as the releases are)
+  or else [JustWatch](https://www.justwatch.com)'s unofficial public API, and open in Google's
+  search for that title. This product uses the TMDB API but is not endorsed or certified by TMDB.
 - Haven isn't affiliated with Apple, Google, TCL or any streaming service.
 
 ## Licence

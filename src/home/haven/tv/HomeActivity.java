@@ -390,6 +390,14 @@ public class HomeActivity extends Activity {
         return true;
     }
 
+    /** Home rows that can be turned off in Settings > Home screen. */
+    private static final String ROW_UPNEXT = "upnext", ROW_PICKS = "picks", ROW_RECENT = "recent",
+            ROW_FAVOURITES = "favourites", ROW_INPUTS = "inputs";
+
+    private boolean rowOn(String row) {
+        return !store.hiddenRows.contains(row);
+    }
+
     /** Every row of Home, top to bottom: the visible sections, then each row of the app grid. */
     private List<LinearLayout> homeRows() {
         List<LinearLayout> rows = new ArrayList<>();
@@ -665,8 +673,11 @@ public class HomeActivity extends Activity {
         entries.clear();
         entries.putAll(map);
         if (!store.hasDock()) {
-            String hdmi1 = null;
-            for (String k : entries.keySet()) if (k.startsWith("input:")) { hdmi1 = k; break; }
+            String port = Inputs.liveTvPort(this), hdmi1 = port != null ? "input:" + port : null;
+            if (hdmi1 == null || !entries.containsKey(hdmi1)) {
+                hdmi1 = null;
+                for (String k : entries.keySet()) if (k.startsWith("input:")) { hdmi1 = k; break; }
+            }
             for (String k : DEFAULT_DOCK) {
                 String key = HDMI1.equals(k) ? hdmi1 : k;
                 if (key != null && entries.containsKey(key)) store.dock.add(key);
@@ -760,13 +771,28 @@ public class HomeActivity extends Activity {
             lp.rightMargin = dp(GAP);
             dockRow.addView(makeCell(key, IN_DOCK), lp);
         }
-        dockSec.box.setVisibility(dockRow.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        dockSec.box.setVisibility(dockRow.getChildCount() > 0 && rowOn(ROW_FAVOURITES) ? View.VISIBLE : View.GONE);
         fillRows(grid, gridKeys(), IN_GRID);
         inputsSec.row.removeAllViews();
-        for (String k : entries.keySet()) {
-            if (isInput(k) && !store.hidden.contains(k)) inputsSec.add(rowCell(entries.get(k), inputsSec, "inputs:"));
+        if (rowOn(ROW_INPUTS)) {
+            // Live TV and ports with something plugged in first; empty ports dimmed after them.
+            Set<String> live = new HashSet<>();
+            for (Inputs.Port port : Inputs.ports(this)) {
+                if (port.state != android.media.tv.TvInputManager.INPUT_STATE_DISCONNECTED
+                        && port.state != android.media.tv.TvInputManager.INPUT_STATE_CONNECTED_STANDBY) live.add("input:" + port.id);
+            }
+            for (int pass = 0; pass < 2; pass++) {
+                for (String k : entries.keySet()) {
+                    if (!isInput(k) || store.hidden.contains(k)) continue;
+                    boolean on = !k.startsWith("input:") || live.contains(k);
+                    if (on != (pass == 0)) continue;
+                    View cell = rowCell(entries.get(k), inputsSec, "inputs:");
+                    if (!on) cell.setAlpha(0.6f);
+                    inputsSec.add(cell);
+                }
+            }
         }
-        inputsSec.box.setVisibility(inputsSec.row.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        inputsSec.box.setVisibility(inputsSec.row.getChildCount() > 0 && rowOn(ROW_INPUTS) ? View.VISIBLE : View.GONE);
         if (overlayId != null) {
             List<String> items = folderItems(overlayId);
             if (items.isEmpty()) closeFolder();
@@ -959,27 +985,34 @@ public class HomeActivity extends Activity {
 
     /** Fills Continue watching from other apps' Watch Next rows (system TV provider). */
     private void loadContinue() {
+        boolean wantUpNext = rowOn(ROW_UPNEXT), wantPicks = rowOn(ROW_PICKS);
         img.execute(() -> {
-            List<WatchNext.Item> items = WatchNext.load(this, 15);
+            // Rows that are turned off aren't loaded at all (no queries, no pictures).
+            List<WatchNext.Item> items = wantUpNext || wantPicks ? WatchNext.load(this, 15) : new ArrayList<>();
             Set<String> watching = new HashSet<>();
             for (WatchNext.Item i : items) watching.add(i.title);
-            List<WatchNext.Item> picks = WatchNext.recommendations(this, 20, watching);
+            if (!wantUpNext) items = new ArrayList<>();
+            List<WatchNext.Item> picks = wantPicks ? WatchNext.recommendations(this, 20, watching) : new ArrayList<>();
             // Netflix publishes no home-screen channel, so add its trending titles (they open on
             // Google TV's page for the title, which has a Netflix button), every third card.
             List<WatchNext.Item> reco = new ArrayList<>();
-            List<Media.Item> nf = Media.netflix(this);
+            List<Media.Item> nf = wantPicks ? Media.netflix(this) : new ArrayList<>();
             int n = 0;
             for (int i = 0; i < picks.size() || n < nf.size(); i++) {
                 if (i < picks.size()) reco.add(picks.get(i));
                 if ((i % 2 == 1 || i >= picks.size()) && n < nf.size() && reco.size() < 26) {
                     Media.Item m = nf.get(n++);
                     if (watching.contains(m.title)) continue;
-                    reco.add(new WatchNext.Item(m.title, "", m.image, NETFLIX, Media.searchIntent(m.title)));
+                    WatchNext.Item it = new WatchNext.Item(m.title, "", m.image, NETFLIX, Media.searchIntent(m.title));
+                    it.logo = m.logo;
+                    it.textless = m.textless;
+                    reco.add(it);
                 }
                 if (reco.size() >= 26) break;
             }
+            List<WatchNext.Item> upNextItems = items;
             ui.post(() -> {
-                fillUpNext(items);
+                fillUpNext(upNextItems);
                 fillWatch(recoSec, reco);
             });
         });
@@ -1245,12 +1278,39 @@ public class HomeActivity extends Activity {
         tile.setForeground(GlassDrawable.overlay(tile, dp(10), 0.7f));
         tile.setFocusable(true);
         tile.setClickable(true);
+        // Behind portrait artwork: a soft, dark copy of it, so the poster shows whole, not cropped.
+        android.widget.ImageView backing = new android.widget.ImageView(this);
+        backing.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        backing.setColorFilter(0x99000000);
+        tile.addView(backing, match());
         android.widget.ImageView art = new android.widget.ImageView(this);
         art.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         tile.addView(art, match());
         TextView fallback = Ui.text(this, item.title, 13, Ui.medium);
         fallback.setGravity(Gravity.CENTER);
         tile.addView(fallback, match());
+        // Backdrops have no title in them: the title's logo (or name) on the lower left, Google TV style.
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        TextView named = Ui.text(this, item.title, 13, Ui.semibold);
+        if (item.textless) {
+            View scrim = new View(this);
+            scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                    new int[]{0xB3000000, 0x33000000, 0x00000000}));
+            tile.addView(scrim, new FrameLayout.LayoutParams(-1, dp(62), Gravity.BOTTOM));
+            logo.setScaleType(android.widget.ImageView.ScaleType.FIT_START);
+            logo.setAdjustViewBounds(true);
+            logo.setMaxWidth(dp(110));
+            logo.setMaxHeight(dp(40));
+            FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
+            llp.setMargins(dp(9), 0, dp(60), dp(8));
+            tile.addView(logo, llp);
+            named.setMaxLines(2);
+            named.setEllipsize(TextUtils.TruncateAt.END);
+            named.setVisibility(item.logo.isEmpty() ? View.VISIBLE : View.GONE);
+            tile.addView(named, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START) {{
+                setMargins(dp(9), 0, dp(60), dp(7));
+            }});
+        }
         Apps.Entry app = entries.get(item.pkg);
         String appName = app != null ? labelOf(app.key) : "";
         if (!appName.isEmpty()) {
@@ -1269,6 +1329,7 @@ public class HomeActivity extends Activity {
         cell.addView(tile, new LinearLayout.LayoutParams(dp(192), dp(108)));
         TextView label = cardLabel(item.subtitle.isEmpty() ? item.title : item.title + " · " + item.subtitle);
         label.setGravity(Gravity.CENTER);
+        if (item.textless) label.setText(" "); // the title is on the card already; keep the row height
         // As wide as the card, so the row starts on the same line as the others.
         cell.addView(label, new LinearLayout.LayoutParams(dp(192), -2) {{ topMargin = dp(9); }});
         tile.setOnFocusChangeListener((v, has) -> {
@@ -1289,9 +1350,23 @@ public class HomeActivity extends Activity {
         });
         img.execute(() -> {
             android.graphics.Bitmap b = Media.poster(this, item.image);
-            if (b != null) ui.post(() -> {
-                art.setImageBitmap(b);
-                fallback.setVisibility(View.GONE);
+            android.graphics.Bitmap l = item.textless ? Media.logo(this, item.logo) : null;
+            if (b != null || l != null) ui.post(() -> {
+                if (b != null) {
+                    boolean portrait = b.getHeight() > b.getWidth() * 0.9f;
+                    if (portrait) {
+                        art.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                        backing.setImageBitmap(b);
+                    }
+                    art.setImageBitmap(b);
+                    fallback.setVisibility(View.GONE);
+                }
+                if (l != null) {
+                    logo.setImageBitmap(l);
+                    named.setVisibility(View.GONE);
+                } else if (item.textless) {
+                    named.setVisibility(View.VISIBLE);
+                }
             });
         });
         return cell;
@@ -1313,6 +1388,12 @@ public class HomeActivity extends Activity {
     }
 
     private void loadRecents() {
+        if (!rowOn(ROW_RECENT)) {
+            recentSec.row.removeAllViews();
+            recentSec.box.setVisibility(View.GONE);
+            recentShown = "";
+            return;
+        }
         List<String> fallback = new ArrayList<>(store.recent);
         bg.execute(() -> {
             List<String> pkgs = Apps.recentPackages(this, fallback);
@@ -1406,11 +1487,11 @@ public class HomeActivity extends Activity {
             live = launchIntent(p);
             if (live != null) { liveTv = p; break; }
         }
-        if (live != null) {
+        if (live != null || !Inputs.ports(this).isEmpty()) {
             Intent openLive = live;
-            tabs.addView(tab(R.drawable.ic_tab_tv, "Live TV", "Live TV", () -> {
-                try { startActivity(openLive); } catch (Exception ignored) { }
-            }, false));
+            View liveTab = tab(R.drawable.ic_tab_tv, "Live TV", "Live TV", () -> openLiveTv(openLive), false);
+            liveTab.setOnLongClickListener(v -> { chooseLiveTv(openLive != null); return true; });
+            tabs.addView(liveTab);
         }
         // Android TV's standard input picker (the tray the remote's Input button opens); else the Inputs row.
         tabs.addView(tab(R.drawable.ic_tab_input, "Inputs", "Inputs", () -> {
@@ -1421,7 +1502,7 @@ public class HomeActivity extends Activity {
                 if (first != null) first.requestFocus();
             }
         }, false));
-        // The TV maker's free-channel app, if there is one, named and drawn with its own icon.
+        // The TV maker's free-channel app, if there is one, as "Channels", drawn with its own icon.
         String channels = null;
         Intent chan = null;
         for (String p : CHANNEL_APPS) {
@@ -1430,8 +1511,7 @@ public class HomeActivity extends Activity {
         }
         if (chan != null) {
             Intent open = chan;
-            String name = appLabel(channels);
-            View t = tab(R.drawable.ic_tab_tv, name, name, () -> {
+            View t = tab(R.drawable.ic_tab_tv, "Channels", "Channels (" + appLabel(channels) + ")", () -> {
                 try { startActivity(open); } catch (Exception ignored) { }
             }, false);
             try {
@@ -1456,6 +1536,43 @@ public class HomeActivity extends Activity {
             } catch (Exception ignored) { }
         }));
         return bar;
+    }
+
+    /** Live TV on the port the TV box is on (see {@link Inputs#liveTvPort}), else the TV's Live TV app. */
+    private void openLiveTv(Intent app) {
+        String port = Inputs.liveTvPort(this);
+        try {
+            if (port != null) startActivity(Inputs.open(port));
+            else if (app != null) startActivity(app);
+            else startActivity(new Intent("com.android.tv.action.VIEW_INPUTS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try {
+                if (app != null) startActivity(app);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    /** Hold OK on Live TV: pick its port, or let Haven find it again. */
+    private void chooseLiveTv(boolean hasApp) {
+        List<Inputs.Port> ports = Inputs.ports(this);
+        android.content.SharedPreferences prefs = getSharedPreferences("haven", MODE_PRIVATE);
+        String chosen = prefs.getString(Inputs.CHOSEN, "");
+        List<String> names = new ArrayList<>(), ids = new ArrayList<>();
+        names.add((chosen.isEmpty() ? "✓  " : "") + "Find it automatically");
+        ids.add("");
+        for (Inputs.Port p : ports) {
+            names.add((p.id.equals(chosen) ? "✓  " : "") + p.name() + (p.connected() ? "  (connected)" : ""));
+            ids.add(p.id);
+        }
+        if (hasApp) {
+            names.add((Inputs.TV_APP.equals(chosen) ? "✓  " : "") + "The TV's own Live TV app");
+            ids.add(Inputs.TV_APP);
+        }
+        new GlassDialog(this)
+                .setTitle("Live TV opens")
+                .setItems(names.toArray(new String[0]), (d, which) ->
+                        prefs.edit().putString(Inputs.CHOSEN, ids.get(which)).apply())
+                .show();
     }
 
     private static boolean isLiveTvApp(String key) {
@@ -1812,6 +1929,11 @@ public class HomeActivity extends Activity {
 
     private void launch(Apps.Entry e, View v) {
         if (e == null) return;
+        if (isLiveTvApp(e.key)) {
+            openLiveTv(e.intent);
+            return;
+        }
+        if (e.key.startsWith("input:")) Inputs.noteOpened(this, e.key.substring(6));
         try {
             ActivityOptions o = ActivityOptions.makeScaleUpAnimation(v, 0, 0, v.getWidth(), v.getHeight());
             startActivity(e.intent, o.toBundle());
@@ -2231,7 +2353,8 @@ public class HomeActivity extends Activity {
         List<SettingsPanel.Row> home = new ArrayList<>();
         home.add(SettingsPanel.action("Edit home screen", "Move, group, rename or hide apps", () -> "›", () -> {
             settings.close();
-            View first = firstTile(dockRow);
+            View first = rowOn(ROW_FAVOURITES) ? firstTile(dockRow) : null;
+            if (first == null) first = firstTile(grid);
             if (first != null) {
                 first.requestFocus();
                 enterEdit((String) first.getTag(), first);
@@ -2239,6 +2362,20 @@ public class HomeActivity extends Activity {
         }));
         if (!store.hidden.isEmpty()) {
             home.add(SettingsPanel.action("Hidden apps", "Show an app you hid", () -> store.hidden.size() + "  ›", this::showHidden));
+        }
+        String[][] rows = {{ROW_UPNEXT, "Up next", "The show or film you were watching"},
+                {ROW_PICKS, "Top picks", "Suggestions from your apps and trending on Netflix"},
+                {ROW_RECENT, "Recent", "Apps you opened lately"},
+                {ROW_FAVOURITES, "Favourites", "Your dock of favourite apps"},
+                {ROW_INPUTS, "Inputs", "HDMI ports and Live TV"}};
+        for (String[] r : rows) {
+            home.add(SettingsPanel.toggle("Show " + r[1], r[2], () -> rowOn(r[0]), () -> {
+                if (!store.hiddenRows.remove(r[0])) store.hiddenRows.add(r[0]);
+                store.save();
+                rebuild();
+                loadRecents();
+                loadContinue();
+            }));
         }
         List<IconPacks.Info> packs = IconPacks.find(this);
         String packId = IconPacks.chosenPkg(this);
@@ -2351,7 +2488,8 @@ public class HomeActivity extends Activity {
                     () -> "Install  ›", () -> offerUpdate(r)));
         }
         about.add(SettingsPanel.action("Check for updates", null, () -> "›", this::checkForUpdates));
-        about.add(SettingsPanel.note("Haven is open source (MIT): github.com/joydeepsjce/haven-tv\nWallpapers come from Bing and Wikimedia each day; their credits are shown on screen."));
+        about.add(SettingsPanel.note("Haven is open source (MIT): github.com/joydeepsjce/haven-tv\nWallpapers come from Bing and Wikimedia each day; their credits are shown on screen."
+                + (Tmdb.available() ? "\nNetflix titles in Top picks: this product uses the TMDB API but is not endorsed or certified by TMDB." : "")));
         out.add(new SettingsPanel.Section(SECTIONS[4], about));
         return out;
     }

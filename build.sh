@@ -4,7 +4,8 @@
 # Needs: JDK 11+ (javac, jar, keytool on PATH or JAVA_HOME), and an Android SDK with
 # build-tools and platforms;android-34 installed:
 #   ANDROID_HOME=/path/to/sdk sh build.sh
-# Optional: BUILD_TOOLS=34.0.0, KEYSTORE=haven.keystore, KS_PASS=... (see below).
+# Optional: BUILD_TOOLS=34.0.0, KEYSTORE=haven.keystore, KS_PASS=... (see below),
+# TMDB_KEY=... or TMDB_KEY_FILE=path (a TMDB API key for Top picks; JustWatch is used without one).
 # Works on Linux, macOS and Windows (Git Bash).
 set -e
 cd "$(dirname "$0")"
@@ -26,7 +27,12 @@ fi
 # Windows build-tools ship d8/apksigner as .bat and zipalign as .exe.
 tool() { for t in "$BT/$1" "$BT/$1.bat" "$BT/$1.exe"; do [ -f "$t" ] && { echo "$t"; return; }; done; echo "$BT/$1"; }
 
-rm -rf build && mkdir -p build/gen build/classes build/dex
+rm -rf build && mkdir -p build/gen/home/haven/tv build/classes build/dex
+# Optional TMDB API key for Top picks (TMDB_KEY, or a file named by TMDB_KEY_FILE). Without one,
+# Haven uses JustWatch. The key is only written into build/, never into the source.
+[ -z "${TMDB_KEY:-}" ] && [ -n "${TMDB_KEY_FILE:-}" ] && [ -f "$TMDB_KEY_FILE" ] && TMDB_KEY="$(tr -d ' \r\n' < "$TMDB_KEY_FILE")"
+printf 'package home.haven.tv;\n\nfinal class BuildKey {\n    static final String TMDB = "%s";\n\n    private BuildKey() { }\n}\n' \
+    "$(printf '%s' "${TMDB_KEY:-}" | tr -cd 'A-Za-z0-9._-')" > build/gen/home/haven/tv/BuildKey.java
 "$(tool aapt2)" compile --dir res -o build/res.zip
 "$(tool aapt2)" link -I "$JAR" --manifest AndroidManifest.xml \
     --min-sdk-version 26 --target-sdk-version 34 --java build/gen -o build/base.apk build/res.zip

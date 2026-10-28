@@ -7,6 +7,11 @@ The MIT licence covers Haven's code only. The following are included under their
 Haven ships no photos. Bing's photo of the day and Wikimedia's Picture of the Day are fetched from
 the internet while shown, and each photo's own credit and licence are displayed on screen.
 
+## TMDB
+
+Netflix titles and artwork in Top picks come from [TMDB](https://www.themoviedb.org) when Haven is
+built with an API key. This product uses the TMDB API but is not endorsed or certified by TMDB.
+
 ## Font (`assets/fonts/`)
 
 [Inter](https://rsms.me/inter/) by Rasmus Andersson, under the SIL Open Font License 1.1

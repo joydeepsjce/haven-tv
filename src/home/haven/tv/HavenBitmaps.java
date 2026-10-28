@@ -38,21 +38,36 @@ final class HavenBitmaps {
         return light;
     }
 
-    /** Tile size in px (144×81 dp, plus room for the 1.12× focus zoom). */
+    private static Boolean tiny;
+
+    /** Under 2 GB: banners too are kept in 16-bit colour (above that, full colour keeps logos crisp). */
+    private static boolean tiny(Context c) {
+        if (tiny == null) {
+            android.app.ActivityManager am = c.getSystemService(android.app.ActivityManager.class);
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            tiny = am.isLowRamDevice() || mi.totalMem < 2L * 1024 * 1024 * 1024;
+        }
+        return tiny;
+    }
+
+    /** Tile size in px at the focus zoom (144×81 dp × 1.09), so a focused banner is drawn 1:1. */
     private static int tileW, tileH;
 
     /**
-     * An app's banner drawn once at the size a tile shows it, centre-cropped onto the tile colour:
-     * about 115 KB in 16-bit colour, instead of 0.2–1 MB for the app's own image (which is often
-     * 640×360 or larger). Everything that shows the app shares this one small picture.
+     * An app's banner drawn once at the size a focused tile shows it, centre-cropped onto the tile
+     * colour: about 230 KB, instead of 0.2–1 MB for the app's own image (often 640×360 or larger).
+     * Big images are halved step by step first, so logos stay smooth instead of jagged.
+     * Everything that shows the app shares this one small picture.
      */
     static Drawable banner(Context c, Drawable d) {
         if (d == null) return null;
         sizes(c);
         try {
-            Bitmap b = Bitmap.createBitmap(tileW, tileH, light(c) ? Bitmap.Config.RGB_565 : Bitmap.Config.ARGB_8888);
+            Bitmap b = Bitmap.createBitmap(tileW, tileH, tiny(c) ? Bitmap.Config.RGB_565 : Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(b);
             canvas.drawColor(0xFF1B1E24);
+            d = stepDown(c, d, tileW, tileH);
             int iw = d.getIntrinsicWidth(), ih = d.getIntrinsicHeight();
             if (iw <= 0 || ih <= 0) {
                 d.setBounds(0, 0, tileW, tileH);
@@ -86,8 +101,28 @@ final class HavenBitmaps {
     private static void sizes(Context c) {
         if (tileW > 0) return;
         float dp = c.getResources().getDisplayMetrics().density;
-        tileW = Math.round(144 * 1.12f * dp);
-        tileH = Math.round(81 * 1.12f * dp);
+        tileW = Math.round(144 * 1.09f * dp);
+        tileH = Math.round(81 * 1.09f * dp);
+    }
+
+    /**
+     * A bitmap more than twice the size it will be drawn at, halved (with filtering) until it's
+     * within 2×, so the last scale doesn't skip pixels. Other drawables are returned as they are.
+     */
+    private static Drawable stepDown(Context c, Drawable d, int w, int h) {
+        if (!(d instanceof BitmapDrawable)) return d;
+        Bitmap src = ((BitmapDrawable) d).getBitmap();
+        if (src == null) return d;
+        Bitmap cur = src;
+        while (cur.getWidth() > w * 2 && cur.getHeight() > h * 2) {
+            Bitmap half = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
+            if (cur != src) cur.recycle();
+            cur = half;
+        }
+        if (cur == src) return d;
+        BitmapDrawable out = new BitmapDrawable(c.getResources(), cur);
+        out.setFilterBitmap(true);
+        return out;
     }
 
     /** A thread pool whose threads never compete with drawing the screen (like Glassio's blur worker). */

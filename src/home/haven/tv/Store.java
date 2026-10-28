@@ -50,6 +50,8 @@ final class Store {
     int blurLevel;
     /** Show the Top movies and Trending shows rows. */
     boolean mediaRows;
+    /** Home rows you turned off: "upnext", "picks", "recent", "favourites", "inputs". */
+    final Set<String> hiddenRows = new LinkedHashSet<>();
     /** Letter shown in the account badge (Google doesn't let other apps read the account name). */
     String accountLetter;
     /** Names the user gave apps, by key. */
@@ -90,6 +92,7 @@ final class Store {
                     .putBoolean("mediaRows", b.optBoolean("mediaRows", true))
                     .putString("renames", b.optString("renames", "{}"))
                     .putString("accountLetter", b.optString("accountLetter", ""))
+                    .putString("hiddenRows", b.optString("hiddenRows", ""))
                     .commit();
         } catch (JSONException ignored) { }
     }
@@ -126,6 +129,8 @@ final class Store {
         blurLevel = p.getInt("blurLevel", 2);
         mediaRows = p.getBoolean("mediaRows", true);
         accountLetter = p.getString("accountLetter", "");
+        hiddenRows.clear();
+        for (String r : p.getString("hiddenRows", "").split(",")) if (!r.isEmpty()) hiddenRows.add(r);
         renames.clear();
         try {
             JSONObject r = new JSONObject(p.getString("renames", "{}"));
@@ -160,6 +165,7 @@ final class Store {
         } catch (JSONException ignored) { }
         String d = TextUtils.join("\n", dock), o = TextUtils.join("\n", order), h = TextUtils.join("\n", hidden);
         String r = new JSONObject(renames).toString();
+        String rows = TextUtils.join(",", hiddenRows);
         p.edit()
                 .putString("dock", d)
                 .putString("order", o)
@@ -174,13 +180,15 @@ final class Store {
                 .putBoolean("mediaRows", mediaRows)
                 .putString("renames", r)
                 .putString("accountLetter", accountLetter)
+                .putString("hiddenRows", rows)
                 .apply();
         try {
             writeBackup(new JSONObject()
                     .put("dock", d).put("order", o).put("hidden", h).put("folders", all.toString())
                     .put("sounds", sounds).put("homeKey", homeKey).put("fastAnim", fastAnim)
                     .put("dynColor", dynColor).put("brightness", brightness).put("blurLevel", blurLevel)
-                    .put("mediaRows", mediaRows).put("renames", r).put("accountLetter", accountLetter));
+                    .put("mediaRows", mediaRows).put("renames", r).put("accountLetter", accountLetter)
+                    .put("hiddenRows", rows));
         } catch (JSONException ignored) { }
     }
 

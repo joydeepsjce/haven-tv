@@ -30,8 +30,9 @@ import java.util.Set;
 
 /**
  * Netflix titles for Top picks. Netflix doesn't publish to the TV's own recommendation channels
- * (Google TV gets them from Google's servers), so Haven asks JustWatch's public GraphQL API (no
- * account or key; unofficial, so it may change) what's trending on Netflix in the TV's country.
+ * (Google TV gets them from Google's servers), so Haven asks TMDB (see {@link Tmdb}) what's
+ * popular on Netflix in the TV's country, or, without a TMDB key, JustWatch's public GraphQL API
+ * (no account or key; unofficial, so it may change) what's trending there.
  * Also holds the poster cache. Lists are cached for 6 hours; posters are kept in Haven's private
  * files (not its cache, which some makers' "cleaner" apps wipe).
  */
@@ -39,6 +40,10 @@ final class Media {
 
     static final class Item {
         final String title, subtitle, image;
+        /** The title's logo (transparent image) to draw on the card, or "". */
+        String logo = "";
+        /** True when the picture has no title in it (a backdrop), so the card shows the title. */
+        boolean textless;
 
         Item(String title, String subtitle, String image) {
             this.title = title;
@@ -77,7 +82,23 @@ final class Media {
      */
     static List<Item> netflix(Context c) {
         String cc = country();
-        return cached(c, "jwNetflix_" + cc, () -> {
+        if (Tmdb.available()) {
+            List<Item> t = cached(c, "tmdbNetflix_" + cc, () -> {
+                List<List<Item>> lists = new ArrayList<>();
+                if (cc.equals("IN")) {
+                    lists.add(Tmdb.netflix("tv", cc, "hi", 15));
+                    lists.add(Tmdb.netflix("movie", cc, "hi", 15));
+                    lists.add(Tmdb.netflix("tv", cc, "en", 10));
+                } else {
+                    lists.add(Tmdb.netflix("tv", cc, null, 15));
+                    lists.add(Tmdb.netflix("movie", cc, null, 15));
+                }
+                return interleave(lists);
+            });
+            if (!t.isEmpty()) return t;
+        }
+        // Backdrops (landscape) since v2 of this list; the old one held portrait posters.
+        return cached(c, "jwNetflix2_" + cc, () -> {
             List<List<Item>> lists = new ArrayList<>();
             if (cc.equals("IN")) {
                 lists.add(query(cc, "SHOW", "IN", 15));
@@ -87,20 +108,25 @@ final class Media {
                 lists.add(query(cc, "SHOW", null, 15));
                 lists.add(query(cc, "MOVIE", null, 15));
             }
-            List<Item> out = new ArrayList<>();
-            Set<String> seen = new HashSet<>();
-            for (int i = 0; out.size() < 12; i++) {
-                boolean any = false;
-                for (List<Item> l : lists) {
-                    if (i < l.size()) {
-                        any = true;
-                        if (seen.add(l.get(i).title) && out.size() < 12) out.add(l.get(i));
-                    }
-                }
-                if (!any) break;
-            }
-            return out;
+            return interleave(lists);
         });
+    }
+
+    /** One from each list in turn, without repeats, up to 12. */
+    private static List<Item> interleave(List<List<Item>> lists) {
+        List<Item> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (int i = 0; out.size() < 12; i++) {
+            boolean any = false;
+            for (List<Item> l : lists) {
+                if (i < l.size()) {
+                    any = true;
+                    if (seen.add(l.get(i).title) && out.size() < 12) out.add(l.get(i));
+                }
+            }
+            if (!any) break;
+        }
+        return out;
     }
 
     private interface Fetch {
@@ -129,7 +155,7 @@ final class Media {
         String filter = "objectTypes: [" + type + "], packages: [\"nfx\"]"
                 + (made != null ? ", productionCountries: [\"" + made + "\"]" : "");
         String q = "{ popularTitles(country: " + cc + ", first: " + count + ", sortBy: TRENDING, filter: {" + filter
-                + "}) { edges { node { content(country: " + cc + ", language: \"en\") { title originalTitle posterUrl }"
+                + "}) { edges { node { content(country: " + cc + ", language: \"en\") { title originalTitle posterUrl backdrops { backdropUrl } }"
                 + " offers(country: " + cc + ", platform: WEB) { monetizationType package { shortName } } } } } }";
         String body = post(JW_URL, new JSONObject().put("query", q).toString());
         JSONArray edges = new JSONObject(body).getJSONObject("data").getJSONObject("popularTitles").getJSONArray("edges");
@@ -143,8 +169,15 @@ final class Media {
             // Indian titles: keep Hindi (Devanagari) and Latin-script originals, skip other Indian scripts.
             if (title.isEmpty() || poster.isEmpty() || indian && !hindiOrLatin(content.optString("originalTitle", title))) continue;
             if (service(node.optJSONArray("offers")) == null) continue;
-            String img = JW_IMG + poster.replace("{profile}", "s332").replace("{format}", "jpg");
-            out.add(new Item(title, "Netflix", img));
+            // A wide backdrop (640×333) fits the 16:9 card; the portrait poster would be cropped to a strip.
+            JSONArray backdrops = content.optJSONArray("backdrops");
+            String backdrop = backdrops != null && backdrops.length() > 0
+                    ? backdrops.getJSONObject(0).optString("backdropUrl", "") : "";
+            Item item = backdrop.isEmpty()
+                    ? new Item(title, "Netflix", JW_IMG + poster.replace("{profile}", "s592").replace("{format}", "jpg"))
+                    : new Item(title, "Netflix", JW_IMG + backdrop.replace("{profile}", "s640").replace("{format}", "jpg"));
+            item.textless = !backdrop.isEmpty();
+            out.add(item);
         }
         return out;
     }
@@ -179,7 +212,10 @@ final class Media {
     private static String toJson(List<Item> items) {
         JSONArray a = new JSONArray();
         try {
-            for (Item i : items) a.put(new JSONObject().put("t", i.title).put("s", i.subtitle).put("i", i.image));
+            for (Item i : items) {
+                a.put(new JSONObject().put("t", i.title).put("s", i.subtitle).put("i", i.image)
+                        .put("l", i.logo).put("x", i.textless));
+            }
         } catch (Exception ignored) { }
         return a.toString();
     }
@@ -190,7 +226,10 @@ final class Media {
             JSONArray a = new JSONArray(json);
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.getJSONObject(i);
-                out.add(new Item(o.getString("t"), o.optString("s", ""), o.optString("i", "")));
+                Item item = new Item(o.getString("t"), o.optString("s", ""), o.optString("i", ""));
+                item.logo = o.optString("l", "");
+                item.textless = o.optBoolean("x", false);
+                out.add(item);
             }
         } catch (Exception ignored) { }
         return out;
@@ -249,19 +288,64 @@ final class Media {
                 return null;
             }
         }
+        try {
+            File f = file(c, url);
+            if (f == null) return null;
+            b = cardSize(c, o -> BitmapFactory.decodeFile(f.getPath(), o));
+            if (b != null) POSTERS.put(url, b);
+            return b;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    /** A web image kept in Haven's files (downloaded the first time); null if it can't be fetched. */
+    private static File file(Context c, String url) throws java.io.IOException {
         if (!url.startsWith("https://") && !url.startsWith("http://")) return null;
         File dir = new File(c.getFilesDir(), "posters");
         File f = new File(dir, Integer.toHexString(url.hashCode()) + ".jpg");
+        if (!f.exists()) {
+            byte[] data = getBytes(url);
+            if (data == null) return null;
+            if (!dir.exists()) dir.mkdirs();
+            try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
+            prune(dir);
+        }
+        return f;
+    }
+
+    /**
+     * A title's logo for a card: kept transparent (full colour), at most 120×48 dp. Call off the
+     * main thread.
+     */
+    static Bitmap logo(Context c, String url) {
+        if (url == null || url.isEmpty()) return null;
+        String key = "logo:" + url;
+        Bitmap b = POSTERS.get(key);
+        if (b != null) return b;
         try {
-            if (!f.exists()) {
-                byte[] data = getBytes(url);
-                if (data == null) return null;
-                if (!dir.exists()) dir.mkdirs();
-                try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
-                prune(dir);
+            File f = file(c, url);
+            if (f == null) return null;
+            float dp = c.getResources().getDisplayMetrics().density;
+            int mw = Math.round(120 * dp), mh = Math.round(48 * dp);
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(f.getPath(), o);
+            if (o.outWidth <= 0) return null;
+            int sample = 1;
+            while (o.outWidth / (sample * 2) >= mw || o.outHeight / (sample * 2) >= mh) sample *= 2;
+            BitmapFactory.Options d = new BitmapFactory.Options();
+            d.inSampleSize = sample;
+            b = BitmapFactory.decodeFile(f.getPath(), d);
+            if (b == null) return null;
+            float scale = Math.min(1f, Math.min(mw / (float) b.getWidth(), mh / (float) b.getHeight()));
+            if (scale < 0.95f) {
+                Bitmap s = Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * scale)),
+                        Math.max(1, Math.round(b.getHeight() * scale)), true);
+                if (s != b) b.recycle();
+                b = s;
             }
-            b = cardSize(c, o -> BitmapFactory.decodeFile(f.getPath(), o));
-            if (b != null) POSTERS.put(url, b);
+            POSTERS.put(key, b);
             return b;
         } catch (Exception | OutOfMemoryError e) {
             return null;
