@@ -1,10 +1,10 @@
 # Haven
 
 A fast, minimal home screen for Google TV and Android TV, in the spirit of Apple TV: a clean row
-layout, a dock of your favourite apps and full-screen nature photos that rotate in the background.
+layout, a dock of your favourite apps and a daily photo from the internet behind it.
 
 No ads, no tracking, no account, no root. Written in plain Java with no libraries; the APK is
-mostly wallpapers.
+about 1.5 MB and Haven uses around 80 MB of memory on a 2.5 GB TV.
 
 ![Haven home screen](docs/home.jpg)
 
@@ -37,16 +37,14 @@ mostly wallpapers.
   TV has them, Inputs and TV Settings.
 - **Search**: a full-screen search bar that finds apps as you type, with "Search all your apps"
   (Google's search) and "Search YouTube". The mic types what you say into the search box.
-- **Wallpapers**: 26 Wikimedia Commons featured photos, with the place and photographer shown
-  in the corner. The photo blurs while you use the remote and turns sharp again when you stop.
-  The focus colour comes from the photo.
-- **Movie & show art**: a wallpaper made from the artwork of your Continue watching and Top picks
-  rows, with no API key needed. When you move to a card, the wallpaper changes to that title.
+- **Wallpapers**: Bing's photo of the day (the default) or Wikimedia's Picture of the Day, with
+  the place and photographer shown in the corner. Photos come from the internet and aren't
+  stored; only the last one is kept, small, for when the TV is offline. The photo blurs while you
+  use the remote and turns sharp again when you stop. The focus colour comes from the photo.
 - **Your own photos**, added without adb: scan a QR code on the TV with your phone and pick
-  photos, or copy them from a USB drive. Show them with Haven's photos or on their own.
-- **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins (Photo of the
-  Day is used by default when it's installed), such as
-  Bing photo of the day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
+  photos, or copy them from a USB drive. Choose Wallpaper > My photos to show them.
+- **Wallpaper plugins**: Haven works with Projectivy Launcher's wallpaper plugins, such as
+  Photo of the Day, Apple aerials, movie and show art (TMDB), Immich, Jellyfin and more.
   Install a plugin, then choose it in Haven Settings > Wallpaper. Its settings open from Haven
   Settings too. Still images, drawables and colours are supported; video and Lottie wallpapers
   aren't yet. Plugins that react to the focused card or to idle mode receive those events.
@@ -59,7 +57,7 @@ mostly wallpapers.
 - **Clock, date and weather** for wherever the TV is (Open-Meteo; °F in the US).
 - **Edit mode**: hold OK until the tiles wiggle, then move apps between the dock and the grid,
   make folders, rename or hide apps.
-- **Screensaver**: "Haven nature photos" uses the same wallpapers.
+- **Screensaver**: "Haven wallpapers" shows your chosen wallpaper with a large clock.
 - **Home button**: an accessibility service opens Haven straight away when you press Home, with no
   flash of the stock launcher. Google TV doesn't let a third-party launcher take over Home any
   other way.
@@ -68,6 +66,10 @@ mostly wallpapers.
   block third-party apps from starting at boot.
 - **Glass look**, inspired by Apple's Liquid Glass: the top bar, tiles, cards, search, Settings and menus get a
   frosted fill that shows the blurred wallpaper behind, a light-catching rim and a soft sheen.
+- **Springy focus**: tiles spring up when focused and bounce at the end of a row, so a press
+  that has nowhere to go still answers.
+- **Light on memory**: banners, icons and posters are kept at the size they're shown, and Haven
+  lets go of its pictures while another app is in front, so the TV is less likely to close it.
 - **Settings** in two panels (sections on the left, options on the right). Left/Right changes a
   value in place.
 - **Updates itself**: Haven checks GitHub for new versions and installs them when you say so.
@@ -136,7 +138,7 @@ asks you to confirm. If you cancel, Haven puts everything back. From a computer:
 | `WRITE_SECURE_SETTINGS` (computer setup only) | Starts the Home-button service again if something turns it off, sets animation speed to 0.5×, and keeps a backup of the layout (which apps are where, nothing personal). |
 | Usage access | Lists recent apps in the Recent row, including ones not opened from Haven. Optional. |
 | `ACCESS_COARSE_LOCATION` | Gets the weather for where you are. Rounded to about 1 km and stored only on the TV. Optional. |
-| `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
+| `INTERNET` | Weather (api.open-meteo.com), Netflix trending titles (JustWatch's public API), the daily wallpaper (bing.com or api.wikimedia.org and upload.wikimedia.org), images for wallpaper plugins, and the photo-upload page, which only runs on your network while its window is open. Nothing is sent anywhere else. |
 | Photos (`READ_MEDIA_IMAGES`) | Only to copy photos from a USB drive when you ask. Optional; the TV asks the first time. |
 | Uninstall (`REQUEST_DELETE_PACKAGES`) | Only for Settings > System > Uninstall Haven, which opens Android's own uninstall confirmation for Haven. |
 | The TV's own debugging (127.0.0.1) | Only when you choose Fix / Keep the Home button on: Haven connects to the TV's adb with its own key (you approve it on the TV once) to allow "restricted settings" and grant the permissions above, then disconnects. |
@@ -158,7 +160,7 @@ asks you to confirm. If you cancel, Haven puts everything back. From a computer:
   - Choose Wallpaper > My photos to see only yours. "Delete your photos" removes them.
 - **Haven Settings** is the last tile in Apps: Wallpaper, Home screen, Set up Haven, System and
   About. Back returns to the section list, then closes.
-- **Screensaver:** Settings > System > Ambient mode > Screensaver > Haven nature photos.
+- **Screensaver:** Settings > System > Ambient mode > Screensaver > Haven wallpapers.
 - Keys sent over adb skip the accessibility service, so `adb shell input keyevent HOME` still
   shows the stock launcher briefly. The real remote doesn't.
 

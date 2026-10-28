@@ -110,7 +110,8 @@ final class GlassDrawable extends Drawable {
         r.set(b.left + in, b.top + in, b.right - in, b.bottom - in);
         rad = radius < 0 ? b.height() / 2f : radius;
         // Small shapes (tiles, cards, pills) share a cached image; big panels draw directly (memory).
-        big = (long) b.width() * b.height() > 700L * 300;
+        // Shapes without a host (Settings rows, dialogs) come and go: draw them directly, don't cache.
+        big = host == null && !overlay || (long) b.width() * b.height() > 700L * 300;
         face = !big && b.width() > 0 && b.height() > 0 ? face(b.width(), b.height()) : null;
         if (big) {
             int a = (int) (255 * Math.min(1f, rim * 1.3f));
@@ -133,6 +134,8 @@ final class GlassDrawable extends Drawable {
             if (cached != null) return cached;
             Bitmap bmp;
             try {
+                // Full colour, not alpha-only: the GPU draws an alpha-only image as a mask and
+                // re-rasterises it at every scale of a focus animation (2.5x the texture uploads).
                 bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             } catch (OutOfMemoryError e) {
                 return null;

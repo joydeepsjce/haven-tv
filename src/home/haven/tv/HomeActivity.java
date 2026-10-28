@@ -239,6 +239,20 @@ public class HomeActivity extends Activity {
         // Top movies/shows rows were replaced by Continue watching (Watch Next from your apps).
     }
 
+    /**
+     * Another app is in front: drop the pictures that can be made again (wallpaper, artwork,
+     * caches) so Haven stays small and isn't killed while you watch; they're back on return.
+     */
+    @Override protected void onStop() {
+        super.onStop();
+        slideshow.unload();
+        recoSec.row.removeAllViews();
+        rowShown.clear();
+        if (upNextViews != null) upNextViews.art.setImageDrawable(null);
+        Media.trim();
+        GlassDrawable.trim();
+    }
+
     @Override protected void onPause() {
         super.onPause();
         resumed = false;
@@ -366,9 +380,13 @@ public class HomeActivity extends Activity {
                 LinearLayout other = (LinearLayout) rows.getChildAt(i);
                 View c = other.getChildAt(right ? 0 : other.getChildCount() - 1);
                 View t = c instanceof ViewGroup ? firstTile((ViewGroup) c) : null;
-                if (t != null) t.requestFocus();
+                if (t != null) {
+                    t.requestFocus();
+                    return true;
+                }
             }
         }
+        Ui.bounce(f, right ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_LEFT); // end of the row
         return true;
     }
 
@@ -400,7 +418,10 @@ public class HomeActivity extends Activity {
             if (tab != null) tab.requestFocus();
             return true;
         }
-        if (j >= rows.size()) return true;
+        if (j >= rows.size()) {
+            Ui.bounce(f, KeyEvent.KEYCODE_DPAD_DOWN); // last row
+            return true;
+        }
         int[] at = new int[2];
         f.getLocationOnScreen(at);
         int cx = at[0] + f.getWidth() / 2;
@@ -796,7 +817,7 @@ public class HomeActivity extends Activity {
 
         DecelerateInterpolator ease = new DecelerateInterpolator(2f);
         tile.setOnFocusChangeListener((v, has) -> {
-            Ui.focus(tile, has, 1.12f);
+            Ui.focus(tile, has, 1.09f);
             label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(5) : 0)
                     .setDuration(180).setInterpolator(ease).start();
             if (!has) return;
@@ -924,7 +945,7 @@ public class HomeActivity extends Activity {
         TextView label = cardLabel(labelOf(e.key));
         cell.addView(label, labelParams());
         tile.setOnFocusChangeListener((v, has) -> {
-            Ui.focus(tile, has, 1.12f);
+            Ui.focus(tile, has, 1.09f);
             label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(5) : 0).setDuration(180).start();
             if (!has) return;
             tick();
@@ -1257,7 +1278,6 @@ public class HomeActivity extends Activity {
             tick();
             sec.follow(cell);
             slideshow.event(Event.programCardFocused(item.title, null, item.image, 0));
-            if (slideshow.followsFocus()) slideshow.showArt(item.image, item.title, appName.isEmpty() ? "" : "From " + appName);
         });
         tile.setOnClickListener(v -> {
             try {
@@ -2131,6 +2151,7 @@ public class HomeActivity extends Activity {
     }
 
     private void onSettingsClosed() {
+        GlassDrawable.trim();
         boolean home = beforeSettings == null || !beforeSettings.isAttachedToWindow();
         if (home) goHome();
         else beforeSettings.requestFocus();
@@ -2169,7 +2190,7 @@ public class HomeActivity extends Activity {
         int at = 0;
         for (int i = 0; i < sources.size(); i++) if (sources.get(i)[0].equals(sourceId)) at = i;
         int currentSource = at;
-        wall.add(SettingsPanel.choice("Wallpaper", "Haven's photos, yours, movie art or a Projectivy plugin",
+        wall.add(SettingsPanel.choice("Wallpaper", "Daily photos from the internet, your own, or a Projectivy plugin",
                 () -> sources.get(currentSource)[1], dir -> {
                     int n = (currentSource + dir + sources.size()) % sources.size();
                     prefs.edit().putString(Slideshow.SOURCE_KEY, sources.get(n)[0]).apply();
@@ -2330,18 +2351,18 @@ public class HomeActivity extends Activity {
                     () -> "Install  ›", () -> offerUpdate(r)));
         }
         about.add(SettingsPanel.action("Check for updates", null, () -> "›", this::checkForUpdates));
-        about.add(SettingsPanel.note("Haven is open source (MIT): github.com/joydeepsjce/haven-tv\nPhoto credits and licences are listed there."));
+        about.add(SettingsPanel.note("Haven is open source (MIT): github.com/joydeepsjce/haven-tv\nWallpapers come from Bing and Wikimedia each day; their credits are shown on screen."));
         out.add(new SettingsPanel.Section(SECTIONS[4], about));
         return out;
     }
 
-    /** {id, name} for each wallpaper source: Haven's photos, yours, movie art, then plugins. */
+    /** {id, name} for each wallpaper source: the daily photos, yours, then plugins. */
     private List<String[]> wallSources() {
         List<String[]> out = new ArrayList<>();
         int mine = Slideshow.myPhotoCount(this);
-        out.add(new String[]{"", mine > 0 ? "Haven's and yours" : "Haven nature photos"});
+        out.add(new String[]{Slideshow.BING, "Bing photo of the day"});
+        out.add(new String[]{Slideshow.WIKIMEDIA, "Wikimedia Picture of the Day"});
         if (mine > 0) out.add(new String[]{Slideshow.MINE, "My photos"});
-        out.add(new String[]{Slideshow.MOVIES, "Movie & show art"});
         for (Plugins.Info i : Plugins.find(this)) out.add(new String[]{i.id(), i.name});
         return out;
     }

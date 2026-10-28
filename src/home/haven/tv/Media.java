@@ -50,13 +50,13 @@ final class Media {
     private static final String JW_URL = "https://apis.justwatch.com/graphql";
     private static final String JW_IMG = "https://images.justwatch.com";
     private static final long FRESH_MS = 6 * 3600_000L;
-    /** Posters in memory: 12 MB on ~2 GB TVs, 24 MB otherwise; dropped when the TV runs low. */
+    /** Posters in memory (now card-sized, ~220 KB each): 4 MB on ~2 GB TVs, 10 MB otherwise; dropped when the TV runs low. */
     static void trim() {
         POSTERS.evictAll();
     }
 
     private static final LruCache<String, Bitmap> POSTERS = new LruCache<String, Bitmap>(
-            (Ui.app() != null && HavenBitmaps.light(Ui.app()) ? 12 : 24) * 1024 * 1024) {
+            (Ui.app() != null && HavenBitmaps.light(Ui.app()) ? 4 : 10) * 1024 * 1024) {
         @Override protected int sizeOf(String k, Bitmap b) {
             return b.getByteCount();
         }
@@ -199,17 +199,50 @@ final class Media {
     // ---------------------------------------------------------------- posters
 
     /** Poster bitmap from memory, Haven's files, or the network. Call off the main thread. */
+    private interface Decode {
+        Bitmap run(BitmapFactory.Options o) throws java.io.IOException;
+    }
+
+    /**
+     * Artwork decoded at the size the biggest card shows it (the Up next art, 220×124 dp), not at
+     * the app's full size: app thumbnails are often 1280×720 or 1920×1080 (2–4 MB each).
+     */
+    private static Bitmap cardSize(Context c, Decode d) throws java.io.IOException {
+        float dp = c.getResources().getDisplayMetrics().density;
+        int tw = Math.round(220 * dp), th = Math.round(124 * dp);
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        d.run(bounds);
+        if (bounds.outWidth <= 0) return null;
+        int sample = 1;
+        while (bounds.outWidth / (sample * 2) >= tw && bounds.outHeight / (sample * 2) >= th) sample *= 2;
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inSampleSize = sample;
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        Bitmap b = d.run(o);
+        if (b == null) return null;
+        float scale = Math.max(tw / (float) b.getWidth(), th / (float) b.getHeight());
+        if (scale < 0.8f) {
+            Bitmap s = Bitmap.createScaledBitmap(b, Math.round(b.getWidth() * scale), Math.round(b.getHeight() * scale), true);
+            if (s != b) b.recycle();
+            b = s;
+        }
+        return b;
+    }
+
     static Bitmap poster(Context c, String url) {
         if (url == null || url.isEmpty()) return null;
         Bitmap b = POSTERS.get(url);
         if (b != null) return b;
         // Apps' own artwork for Watch Next can be served by their content providers.
         if (url.startsWith("content://") || url.startsWith("android.resource://")) {
-            try (InputStream in = c.getContentResolver().openInputStream(Uri.parse(url))) {
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                o.inSampleSize = 2;
-                b = BitmapFactory.decodeStream(in, null, o);
+            try {
+                Uri u = Uri.parse(url);
+                b = cardSize(c, o -> {
+                    try (InputStream in = c.getContentResolver().openInputStream(u)) {
+                        return BitmapFactory.decodeStream(in, null, o);
+                    }
+                });
                 if (b != null) POSTERS.put(url, b);
                 return b;
             } catch (Exception | OutOfMemoryError e) {
@@ -227,9 +260,7 @@ final class Media {
                 try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
                 prune(dir);
             }
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inPreferredConfig = Bitmap.Config.RGB_565;
-            b = BitmapFactory.decodeFile(f.getPath(), o);
+            b = cardSize(c, o -> BitmapFactory.decodeFile(f.getPath(), o));
             if (b != null) POSTERS.put(url, b);
             return b;
         } catch (Exception | OutOfMemoryError e) {

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="home.haven.tv"
-    android:versionCode="29"
-    android:versionName="4.11">
+    android:versionCode="32"
+    android:versionName="4.12">
 
     <!-- Only used to fetch the current temperature from api.open-meteo.com. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -136,7 +136,7 @@
         <service
             android:name=".HavenDream"
             android:exported="true"
-            android:label="Haven nature photos"
+            android:label="Haven wallpapers"
             android:permission="android.permission.BIND_DREAM_SERVICE">
             <intent-filter>
                 <action android:name="android.service.dreams.DreamService" />

@@ -3,6 +3,9 @@ package home.haven.tv;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 
 import java.io.File;
@@ -33,6 +36,58 @@ final class HavenBitmaps {
             light = am.isLowRamDevice() || mi.totalMem < 3L * 1024 * 1024 * 1024;
         }
         return light;
+    }
+
+    /** Tile size in px (144×81 dp, plus room for the 1.12× focus zoom). */
+    private static int tileW, tileH;
+
+    /**
+     * An app's banner drawn once at the size a tile shows it, centre-cropped onto the tile colour:
+     * about 115 KB in 16-bit colour, instead of 0.2–1 MB for the app's own image (which is often
+     * 640×360 or larger). Everything that shows the app shares this one small picture.
+     */
+    static Drawable banner(Context c, Drawable d) {
+        if (d == null) return null;
+        sizes(c);
+        try {
+            Bitmap b = Bitmap.createBitmap(tileW, tileH, light(c) ? Bitmap.Config.RGB_565 : Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(b);
+            canvas.drawColor(0xFF1B1E24);
+            int iw = d.getIntrinsicWidth(), ih = d.getIntrinsicHeight();
+            if (iw <= 0 || ih <= 0) {
+                d.setBounds(0, 0, tileW, tileH);
+            } else {
+                float scale = Math.max(tileW / (float) iw, tileH / (float) ih);
+                int w = Math.round(iw * scale), h = Math.round(ih * scale);
+                int x = (tileW - w) / 2, y = (tileH - h) / 2;
+                d.setBounds(x, y, x + w, y + h);
+            }
+            d.draw(canvas);
+            return new BitmapDrawable(c.getResources(), b);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return d;
+        }
+    }
+
+    /** An app's icon at the size a tile shows it (about 100 px, with transparency). */
+    static Drawable icon(Context c, Drawable d) {
+        if (d == null) return null;
+        int s = Math.round(81 * 0.54f * 1.12f * c.getResources().getDisplayMetrics().density);
+        try {
+            Bitmap b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, s, s);
+            d.draw(new Canvas(b));
+            return new BitmapDrawable(c.getResources(), b);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return d;
+        }
+    }
+
+    private static void sizes(Context c) {
+        if (tileW > 0) return;
+        float dp = c.getResources().getDisplayMetrics().density;
+        tileW = Math.round(144 * 1.12f * dp);
+        tileH = Math.round(81 * 1.12f * dp);
     }
 
     /** A thread pool whose threads never compete with drawing the screen (like Glassio's blur worker). */

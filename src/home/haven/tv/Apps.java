@@ -51,7 +51,6 @@ final class Apps {
         addActivities(c, pm, Intent.CATEGORY_LAUNCHER, apps, seen);
         Collections.sort(apps, (a, b) -> a.label.compareToIgnoreCase(b.label));
 
-        applyIconPack(c, apps);
         LinkedHashMap<String, Entry> map = new LinkedHashMap<>();
         for (Entry e : apps) map.put(e.key, e);
 
@@ -125,25 +124,22 @@ final class Apps {
         return out;
     }
 
-    /** Swaps in the chosen icon pack's banners or icons, except for apps set back to their own. */
-    private static void applyIconPack(Context c, List<Entry> apps) {
+    /** The chosen icon pack's banner or icon for this app, unless it was set back to its own. */
+    private static boolean packIcon(Context c, Entry e) {
         IconPacks.Pack pack = IconPacks.chosen(c);
-        if (pack == null) return;
+        if (pack == null || e.intent.getComponent() == null) return false;
         String skip = "," + c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(IconPacks.SKIP_PREF, "") + ",";
-        for (Entry e : apps) {
-            if (e.intent == null || e.intent.getComponent() == null || skip.contains("," + e.key + ",")) continue;
-            IconPacks.Icon i = pack.icon(e.intent.getComponent());
-            if (i == null) continue;
-            e.fromPack = true;
-            if (i.banner) {
-                e.banner = i.drawable;
-                e.icon = null;
-            } else {
-                e.banner = null;
-                e.icon = i.drawable;
-                e.tint = IconPacks.tint(i.drawable);
-            }
+        if (skip.contains("," + e.key + ",")) return false;
+        IconPacks.Icon i = pack.icon(e.intent.getComponent());
+        if (i == null) return false;
+        e.fromPack = true;
+        if (i.banner) {
+            e.banner = HavenBitmaps.banner(c, i.drawable);
+        } else {
+            e.tint = IconPacks.tint(i.drawable);
+            e.icon = HavenBitmaps.icon(c, i.drawable);
         }
+        return true;
     }
 
     /** Installed icon packs and Projectivy wallpaper plugins. */
@@ -167,11 +163,11 @@ final class Apps {
             String pkg = ri.activityInfo.packageName;
             if (pkg.equals(c.getPackageName()) || seen.containsKey(pkg)) continue;
             seen.put(pkg, true);
-            out.add(entryFor(pm, ri, category));
+            out.add(entryFor(c, pm, ri, category));
         }
     }
 
-    private static Entry entryFor(PackageManager pm, ResolveInfo ri, String category) {
+    private static Entry entryFor(Context c, PackageManager pm, ResolveInfo ri, String category) {
         ActivityInfo ai = ri.activityInfo;
         Entry e = new Entry();
         e.key = e.pkg = ai.packageName;
@@ -179,12 +175,15 @@ final class Apps {
         e.intent = new Intent(Intent.ACTION_MAIN).addCategory(category)
                 .setClassName(ai.packageName, ai.name)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        // The icon pack's picture, if it has one, so the app's own banner isn't loaded for nothing.
+        if (packIcon(c, e)) return e;
         Drawable banner = ai.loadBanner(pm);
         if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
-        e.banner = banner;
+        e.banner = HavenBitmaps.banner(c, banner);
         if (banner == null) {
-            e.icon = ri.loadIcon(pm);
-            e.tint = Ui.averageColor(e.icon);
+            Drawable icon = ri.loadIcon(pm);
+            e.tint = Ui.averageColor(icon);
+            e.icon = HavenBitmaps.icon(c, icon);
         }
         return e;
     }

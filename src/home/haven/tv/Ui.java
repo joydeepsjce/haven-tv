@@ -140,6 +140,48 @@ final class Ui {
     }
 
     /** tvOS-style focus: lift and scale, tilt away from the move direction, and sweep a highlight. */
+    /**
+     * A damped spring as an interpolator, from a damping ratio and stiffness like Android's
+     * SpringForce (mass 1): ends where it settles, so it can overshoot a little and come back.
+     */
+    static final class Spring implements android.animation.TimeInterpolator {
+        final float zeta, omega;
+        final long millis;
+
+        Spring(float damping, float stiffness) {
+            zeta = damping;
+            omega = (float) Math.sqrt(stiffness);
+            millis = Math.round(1000 * 5f / (zeta * omega)); // settled to well under 1%
+        }
+
+        @Override public float getInterpolation(float t) {
+            double s = t * millis / 1000.0;
+            double wd = omega * Math.sqrt(1 - zeta * zeta);
+            double e = Math.exp(-zeta * omega * s);
+            return (float) (1 - e * (Math.cos(wd * s) + zeta * omega / wd * Math.sin(wd * s)));
+        }
+    }
+
+    static final Spring FOCUS_SPRING = new Spring(0.72f, 520f), BOUNCE_SPRING = new Spring(0.45f, 380f);
+
+    /**
+     * Nowhere to go in that direction (end of a row, last row): the focused tile nudges 9 dp that
+     * way and springs back, so the press is acknowledged (Glassio / tvOS edge bounce).
+     */
+    static void bounce(View tile, int keyCode) {
+        if (tile == null) return;
+        Context c = tile.getContext();
+        float d = dp(c, 9);
+        float dx = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? d : keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -d : 0;
+        float dy = keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? d * 0.7f : keyCode == KeyEvent.KEYCODE_DPAD_UP ? -d * 0.7f : 0;
+        tile.animate().cancel();
+        tile.animate().translationX(dx).translationY(dy).setDuration(90)
+                .setInterpolator(new android.view.animation.LinearInterpolator())
+                .withEndAction(() -> tile.animate().translationX(0).translationY(0)
+                        .setDuration(BOUNCE_SPRING.millis).setInterpolator(BOUNCE_SPRING).start())
+                .start();
+    }
+
     static void focus(View tile, boolean has, float scale) {
         Context c = tile.getContext();
         DecelerateInterpolator ease = new DecelerateInterpolator(2f);
@@ -149,8 +191,10 @@ final class Ui {
             float tilt = 7f;
             tile.setRotationY(lastDir == KeyEvent.KEYCODE_DPAD_RIGHT ? -tilt : lastDir == KeyEvent.KEYCODE_DPAD_LEFT ? tilt : 0);
             tile.setRotationX(lastDir == KeyEvent.KEYCODE_DPAD_DOWN ? tilt : lastDir == KeyEvent.KEYCODE_DPAD_UP ? -tilt : 0);
+            // tvOS-style: a soft spring up to the focus size (damping 0.72, stiffness 520, as Glassio).
+            // No extra lift: moving an elevated tile re-renders its shadow every frame.
             tile.animate().scaleX(scale).scaleY(scale).rotationX(0).rotationY(0).translationZ(dp(c, 16))
-                    .setDuration(420).setInterpolator(new OvershootInterpolator(1.6f)).start();
+                    .setDuration(FOCUS_SPRING.millis).setInterpolator(FOCUS_SPRING).start();
         } else {
             tile.animate().scaleX(1f).scaleY(1f).rotationX(0).rotationY(0).translationZ(0)
                     .setDuration(180).setInterpolator(ease).start();

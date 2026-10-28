@@ -9,7 +9,7 @@ import android.widget.LinearLayout;
 import android.widget.TextClock;
 import android.widget.TextView;
 
-/** Screensaver: Haven's nature photos with a large clock, in the spirit of Apple TV's. */
+/** Screensaver: your chosen wallpapers with a large clock, in the spirit of Apple TV's. */
 public class HavenDream extends DreamService {
 
     private Slideshow slideshow;

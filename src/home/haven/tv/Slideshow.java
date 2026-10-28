@@ -51,23 +51,26 @@ final class Slideshow {
         void onSlide(String title, String credit, int color);
     }
 
-    /** Haven setting holding the chosen plugin's id; empty for Haven's own photos. */
+    /** Haven setting holding the chosen source: a built-in id below, or a plugin's component name. */
     static final String SOURCE_KEY = "wallSource";
-    /** Built-in sources besides Haven's photos (empty id) and plugins (their component name). */
-    static final String MINE = "haven:mine", MOVIES = "haven:movies";
-    /** Used until you pick a wallpaper, when installed: Projectivy's Photo of the Day plugin. */
-    static final String DEFAULT_SOURCE = "tv.projectivy.plugin.wallpaperprovider.photooftheday/"
-            + "tv.projectivy.plugin.wallpaperprovider.photooftheday.WallpaperProviderService";
+    /**
+     * Built-in sources. Haven ships no photos: Bing's and Wikimedia's daily photos come from the
+     * internet and aren't stored (only the last one shown is kept, small, for when the TV is offline).
+     */
+    static final String BING = "haven:bing", WIKIMEDIA = "haven:wikimedia", MINE = "haven:mine";
 
-    /** The wallpaper source: your choice, else Photo of the Day if installed, else Haven's photos (""). */
+    /** The wallpaper source: your choice, else Bing (also for the removed Haven photos / movie art). */
     static String sourceId(Context c) {
-        android.content.SharedPreferences p = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
-        if (p.contains(SOURCE_KEY)) return p.getString(SOURCE_KEY, "");
-        return Plugins.byId(c, DEFAULT_SOURCE) != null ? DEFAULT_SOURCE : "";
+        String id = c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(SOURCE_KEY, BING);
+        return id.isEmpty() || "haven:movies".equals(id) ? BING : id;
     }
-    /** Display mode for movie art: fill the screen when the picture is wide and sharp enough, else letterbox. */
+
+    /** Fill the screen when the picture is wide and sharp enough, else letterbox on a blurred copy. */
     private static final int AUTO = -1;
-    private static final long MOVIES_FRESH_MS = 30 * 60_000L;
+    /** Daily lists change once a day; ask again after this long. */
+    private static final long DAILY_FRESH_MS = 6 * 3600_000L;
+    /** The last web photo shown, kept small for when the internet is down. */
+    private static final String LAST = "last-wallpaper.jpg";
     private static final long FADE_MS = 1800;
     private static final int MAX_DOWNLOAD = 30 * 1024 * 1024;
 
@@ -91,7 +94,6 @@ final class Slideshow {
     private final Listener listener;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService bg = HavenBitmaps.background(1, "haven-slides");
-    private final Map<String, String[]> credits = new HashMap<>();
     private final Runnable next = this::showNext;
     private FrameLayout front, back;
     /** 0..1: how much darker the photo is drawn (Wallpaper brightness, scroll), as a filter, not an extra layer. */
@@ -105,6 +107,7 @@ final class Slideshow {
     private volatile Plugins.Connection plugin;
     private volatile String source = "";
     private volatile long lastEventAt;
+    private int fades;
 
     Slideshow(Context c, long intervalMs, Listener listener) {
         this.c = c;
@@ -116,7 +119,7 @@ final class Slideshow {
         front = slide();
         view.addView(back, new FrameLayout.LayoutParams(-1, -1));
         view.addView(front, new FrameLayout.LayoutParams(-1, -1));
-        bg.execute(this::loadCredits);
+        bg.execute(() -> deleteRecursively(new File(c.getCacheDir(), "plugin-walls"))); // old download cache
         reload();
     }
 
@@ -144,20 +147,9 @@ final class Slideshow {
     String sourceName() {
         Plugins.Info p = plugin();
         if (p != null) return p.name;
-        if (MOVIES.equals(source)) return "Movie & show art";
         if (MINE.equals(source)) return "My photos";
-        return "Haven nature photos";
-    }
-
-    /** True when the wallpaper should follow the focused Continue watching / Top picks card. */
-    boolean followsFocus() {
-        return MOVIES.equals(source);
-    }
-
-    /** Shows a program's artwork now (movie art source), e.g. for the focused card. */
-    void showArt(String image, String title, String credit) {
-        if (image == null || image.isEmpty()) return;
-        showSoon(new Item(image, title, credit, Wallpaper.IMAGE, AUTO), null);
+        if (WIKIMEDIA.equals(source)) return "Wikimedia Picture of the Day";
+        return "Bing photo of the day";
     }
 
     /** The plugin in use, or null when showing Haven's photos (or when the plugin gave nothing). */
@@ -279,6 +271,22 @@ final class Slideshow {
 
     }
 
+    /** Haven isn't visible: let go of the photos (about 8 MB); the next start shows one again. */
+    void unload() {
+        pause();
+        fades++;
+        for (FrameLayout f : new FrameLayout[]{front, back}) {
+            f.animate().cancel();
+            ((ImageView) f.getChildAt(0)).setImageDrawable(null);
+            ((ImageView) f.getChildAt(1)).setImageDrawable(null);
+            f.setBackground(null);
+        }
+        view.setBackgroundColor(Color.BLACK);
+        GlassDrawable.backdrop = null;
+        lastChange = 0;
+        index = Math.max(-1, index - 1); // come back to the same photo
+    }
+
     void release() {
         pause();
         Plugins.Connection p = plugin;
@@ -298,7 +306,8 @@ final class Slideshow {
             // A plugin's list is kept as long as the plugin asked; after that, ask it again.
             Plugins.Connection p = plugin;
             long age = SystemClock.elapsedRealtime() - fetchedAt;
-            boolean stale = p != null ? age > p.info.cacheMs : MOVIES.equals(source) && age > MOVIES_FRESH_MS;
+            boolean stale = p != null ? age > p.info.cacheMs
+                    : (BING.equals(source) || WIKIMEDIA.equals(source)) && age > DAILY_FRESH_MS;
             List<Item> fresh = wrapped && stale ? load() : null;
             ui.post(() -> {
                 if (fresh != null) {
@@ -315,6 +324,9 @@ final class Slideshow {
     private void crossfade(Bitmap b, Bitmap soft, Item item) {
         FrameLayout incoming = back, outgoing = front;
         incoming.animate().cancel();
+        outgoing.animate().cancel();
+        outgoing.setAlpha(1f);
+        final int token = ++fades;
         ImageView photo = (ImageView) incoming.getChildAt(0);
         photo.setImageBitmap(b);
         int mode = item.mode != AUTO ? item.mode
@@ -337,14 +349,17 @@ final class Slideshow {
         incoming.setAlpha(0f);
         view.bringChildToFront(incoming);
         incoming.animate().alpha(1f).setDuration(FADE_MS).withEndAction(() -> {
+            if (token != fades) return; // a newer photo is fading in; it owns these views now
             ((ImageView) outgoing.getChildAt(0)).setImageDrawable(null);
             ((ImageView) outgoing.getChildAt(1)).setImageDrawable(null);
+            outgoing.setBackground(null);
         }).start();
         front = incoming;
         back = outgoing;
         view.setBackground(null); // the photo covers the screen now; black was only for before it
         GlassDrawable.backdrop = soft;
         listener.onSlide(item.title, item.credit, mainColor(soft));
+        keepLast(b, item);
     }
 
     /** Average of the photo's more colourful pixels, so a blue sky or red dune wins over grey rock. */
@@ -364,47 +379,51 @@ final class Slideshow {
 
     // ---------------------------------------------------------------- loading
 
-    /** The plugin's list when one is chosen and gives something Haven can show; otherwise Haven's photos. */
+    /** The chosen source's photos; the last photo shown if it gives none (offline). */
     private List<Item> load() {
-        if (MOVIES.equals(source)) {
-            List<Item> list = movies();
-            fetchedAt = SystemClock.elapsedRealtime();
-            if (!list.isEmpty()) return list;
-        } else if (MINE.equals(source)) {
-            List<Item> list = scan(true);
-            if (!list.isEmpty()) return list;
-        }
-        Plugins.Connection p = plugin;
-        if (p != null) {
-            List<Item> list = fromPlugin(p.get(Event.timeElapsed()), p.info);
-            fetchedAt = SystemClock.elapsedRealtime();
-            if (!list.isEmpty()) return list;
-        }
-        return scan(false);
-    }
-
-    /** Artwork from your apps' Continue watching and channel rows (the same pictures as the cards). */
-    private List<Item> movies() {
-        List<WatchNext.Item> all = new ArrayList<>(WatchNext.load(c, 20));
-        java.util.Set<String> titles = new java.util.HashSet<>();
-        for (WatchNext.Item i : all) titles.add(i.title);
-        all.addAll(WatchNext.recommendations(c, 40, titles));
-        List<Item> out = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (WatchNext.Item i : all) {
-            if (i.image == null || i.image.isEmpty() || !seen.add(i.image)) continue;
-            out.add(new Item(i.image, i.title, "From " + appName(i.pkg), Wallpaper.IMAGE, AUTO));
-        }
-        Collections.shuffle(out);
-        return out;
-    }
-
-    private String appName(String pkg) {
+        List<Item> list = new ArrayList<>();
         try {
-            return String.valueOf(c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(pkg, 0)));
-        } catch (Exception e) {
-            return pkg;
+            if (BING.equals(source)) for (DailyPhotos.Photo p : DailyPhotos.bing()) list.add(web(p));
+            else if (WIKIMEDIA.equals(source)) for (DailyPhotos.Photo p : DailyPhotos.wikimedia()) list.add(web(p));
+            else if (MINE.equals(source)) list = scan();
+        } catch (Exception ignored) { }
+        Plugins.Connection p = plugin;
+        if (p != null) list = fromPlugin(p.get(Event.timeElapsed()), p.info);
+        fetchedAt = SystemClock.elapsedRealtime();
+        if (list.isEmpty()) {
+            File last = new File(c.getFilesDir(), LAST);
+            android.content.SharedPreferences prefs = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
+            if (last.isFile()) list.add(new Item(last.getAbsolutePath(), prefs.getString("lastWallTitle", ""),
+                    prefs.getString("lastWallCredit", ""), Wallpaper.IMAGE, AUTO));
         }
+        return list;
+    }
+
+    private static Item web(DailyPhotos.Photo p) {
+        return new Item(p.url, p.title, p.credit, Wallpaper.IMAGE, AUTO);
+    }
+
+    /** Keeps the photo just shown (web sources only) as the offline fallback: one small JPEG. */
+    private void keepLast(Bitmap b, Item item) {
+        if (!item.src.startsWith("http")) return;
+        bg.execute(() -> {
+            File f = new File(c.getFilesDir(), LAST), tmp = new File(c.getFilesDir(), LAST + ".tmp");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                if (b.isRecycled() || !b.compress(Bitmap.CompressFormat.JPEG, 80, out)) return;
+            } catch (IOException e) {
+                return;
+            }
+            if (tmp.renameTo(f)) {
+                c.getSharedPreferences("haven", Context.MODE_PRIVATE).edit()
+                        .putString("lastWallTitle", item.title).putString("lastWallCredit", item.credit).apply();
+            }
+        });
+    }
+
+    private static void deleteRecursively(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteRecursively(k);
+        f.delete();
     }
 
     /** The folder your own photos go in (from your phone, a USB drive or adb). */
@@ -448,35 +467,16 @@ final class Slideshow {
         return s != null && !s.trim().isEmpty();
     }
 
-    private void loadCredits() {
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(
-                c.getAssets().open("wallpapers/credits.tsv"), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                String[] p = line.split("\t");
-                if (p.length >= 4) credits.put("asset:wallpapers/" + p[0], new String[]{p[1], p[2], p[3]});
-            }
-        } catch (IOException ignored) { }
-    }
-
-    /** Haven's photos plus your own, or ({@code mineOnly}) just yours. */
-    private List<Item> scan(boolean mineOnly) {
+    /** Your own photos (added from Haven Settings, or adb push to Android/data/home.haven.tv/files/wallpapers/). */
+    private List<Item> scan() {
         List<String> list = new ArrayList<>();
-        if (!mineOnly) try {
-            String[] names = c.getAssets().list("wallpapers");
-            if (names != null) for (String n : names) if (isImage(n)) list.add("asset:wallpapers/" + n);
-        } catch (IOException ignored) { }
-        // Your photos: added from Haven Settings, or adb push to /sdcard/Android/data/home.haven.tv/files/wallpapers/
         File dir = myPhotosDir(c);
         File[] files = dir != null ? dir.listFiles() : null;
         if (files != null) for (File f : files) if (isImage(f.getName())) list.add(f.getAbsolutePath());
         Collections.shuffle(list);
         List<Item> out = new ArrayList<>();
         for (String src : list) {
-            String[] cr = credits.get(src);
-            String title = cr != null ? cr[0] : new File(src).getName().replaceFirst("\\.[^.]+$", "");
-            // Just the photographer on screen; full licence details are in assets/wallpapers/credits.tsv.
-            out.add(new Item(src, title, cr != null ? "Photo: " + cr[1] : "", Wallpaper.IMAGE, Wallpaper.CROP));
+            out.add(new Item(src, new File(src).getName().replaceFirst("\\.[^.]+$", ""), "", Wallpaper.IMAGE, Wallpaper.CROP));
         }
         return out;
     }
@@ -493,10 +493,17 @@ final class Slideshow {
                 b.eraseColor(Color.parseColor(item.src.trim()));
                 return b;
             }
-            // Web images are cached as files first; everything is then decoded straight from its
-            // stream (no copy of the whole file in memory).
-            String src = item.src.startsWith("http://") || item.src.startsWith("https://") ? cached(item.src) : item.src;
-            if (src == null) return null;
+            if (item.src.startsWith("http://") || item.src.startsWith("https://")) {
+                // Downloaded into memory only for decoding; nothing is written to storage.
+                byte[] data = download(item.src);
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(data, 0, data.length, o);
+                if (o.outWidth <= 0) return null;
+                return HavenBitmaps.coverScreen(c, o.outWidth, o.outHeight,
+                        opts -> BitmapFactory.decodeByteArray(data, 0, data.length, opts));
+            }
+            String src = item.src;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inJustDecodeBounds = true;
             try (InputStream in = open(src)) { BitmapFactory.decodeStream(in, null, o); }
@@ -511,42 +518,19 @@ final class Slideshow {
         }
     }
 
-    /** A web image's cached file path, downloading it the first time; null if it can't be fetched. */
-    private String cached(String url) throws IOException {
-        read(url);
-        File f = new File(new File(c.getCacheDir(), "plugin-walls"), Integer.toHexString(url.hashCode()) + "-" + url.length());
-        return f.isFile() ? f.getAbsolutePath() : null;
-    }
-
-    /** The image's bytes. Web images are kept in Haven's cache so each one downloads once. */
-    private byte[] read(String src) throws IOException {
-        if (src.startsWith("http://") || src.startsWith("https://")) {
-            File dir = new File(c.getCacheDir(), "plugin-walls");
-            File f = new File(dir, Integer.toHexString(src.hashCode()) + "-" + src.length());
-            if (f.isFile()) {
-                f.setLastModified(System.currentTimeMillis());
-                try (InputStream in = new FileInputStream(f)) { return readAll(in); }
-            }
-            HttpURLConnection h = (HttpURLConnection) new URL(src).openConnection();
-            h.setConnectTimeout(15_000);
-            h.setReadTimeout(20_000);
-            h.setRequestProperty("User-Agent", "Haven (Android TV launcher)");
-            try (InputStream in = h.getInputStream()) {
-                byte[] data = readAll(in);
-                trimCache(dir);
-                if (dir.isDirectory() || dir.mkdirs()) {
-                    try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
-                }
-                return data;
-            } finally {
-                h.disconnect();
-            }
+    private static byte[] download(String url) throws IOException {
+        HttpURLConnection h = (HttpURLConnection) new URL(url).openConnection();
+        h.setConnectTimeout(15_000);
+        h.setReadTimeout(20_000);
+        h.setRequestProperty("User-Agent", "Haven (https://github.com/joydeepsjce/haven-tv)");
+        try (InputStream in = h.getInputStream()) {
+            return readAll(in);
+        } finally {
+            h.disconnect();
         }
-        try (InputStream in = open(src)) { return in != null ? readAll(in) : null; }
     }
 
     private InputStream open(String src) throws IOException {
-        if (src.startsWith("asset:")) return c.getAssets().open(src.substring(6));
         if (src.startsWith("content:") || src.startsWith("android.resource:") || src.startsWith("file:")) {
             return c.getContentResolver().openInputStream(Uri.parse(src));
         }
@@ -563,14 +547,6 @@ final class Slideshow {
         return out.toByteArray();
     }
 
-    /** Keeps the newest 20 downloaded wallpapers. */
-    private static void trimCache(File dir) {
-        File[] files = dir.listFiles();
-        if (files == null || files.length < 20) return;
-        java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
-        for (int i = 19; i < files.length; i++) files[i].delete();
-    }
-
     /** android.resource://pkg/type/name pointing at a vector or other non-bitmap drawable. */
     private Bitmap drawable(String src) {
         try {
@@ -580,7 +556,7 @@ final class Slideshow {
             int id = seg.size() == 1 ? Integer.parseInt(seg.get(0)) : res.getIdentifier(seg.get(1), seg.get(0), u.getAuthority());
             Drawable d = res.getDrawable(id, null);
             int w = c.getResources().getDisplayMetrics().widthPixels, h = c.getResources().getDisplayMetrics().heightPixels;
-            Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            Bitmap b = Bitmap.createBitmap(w, h, HavenBitmaps.light(c) ? Bitmap.Config.RGB_565 : Bitmap.Config.ARGB_8888);
             d.setBounds(0, 0, w, h);
             d.draw(new Canvas(b));
             return b;
