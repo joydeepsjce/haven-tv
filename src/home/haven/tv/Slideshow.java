@@ -282,7 +282,8 @@ final class Slideshow {
             f.setBackground(null);
         }
         view.setBackgroundColor(Color.BLACK);
-        GlassDrawable.backdrop = null;
+        // The glass keeps its small blurred backdrop (~100 KB): without it, glass redrawn before the
+        // next photo arrives comes out clear, as a see-through box on the frosted card.
         lastChange = 0;
         index = Math.max(-1, index - 1); // come back to the same photo
     }

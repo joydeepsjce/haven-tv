@@ -1109,10 +1109,14 @@ public class HomeActivity extends Activity {
         top.addView(v.nav, nlp);
         text.addView(top, new LinearLayout.LayoutParams(-2, -2));
         v.title = Ui.text(this, "", 21, Ui.semibold);
+        // No text shadows on the glass card: a shadowed TextView fades through an offscreen layer,
+        // which this GPU draws as a lighter box over the card while it turns.
+        v.title.setShadowLayer(0, 0, 0, 0);
         v.title.setSingleLine(true);
         v.title.setEllipsize(TextUtils.TruncateAt.END);
         text.addView(v.title, new LinearLayout.LayoutParams(-1, -2) {{ topMargin = dp(4); }});
         v.episode = Ui.text(this, "", 13, Ui.regular);
+        v.episode.setShadowLayer(0, 0, 0, 0);
         v.episode.setTextColor(0xD9FFFFFF);
         v.episode.setSingleLine(true);
         v.episode.setEllipsize(TextUtils.TruncateAt.END);
@@ -1141,6 +1145,7 @@ public class HomeActivity extends Activity {
         v.action.setPadding(dp(14), dp(4), dp(14), dp(5));
         actions.addView(v.action);
         v.pct = Ui.text(this, "", 12, Ui.regular);
+        v.pct.setShadowLayer(0, 0, 0, 0);
         v.pct.setTextColor(0xCCFFFFFF);
         v.pct.setPadding(dp(10), 0, 0, 0);
         actions.addView(v.pct);
