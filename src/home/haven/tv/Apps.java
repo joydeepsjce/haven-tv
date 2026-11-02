@@ -35,6 +35,8 @@ final class Apps {
         int tint = 0xFF2A2F38;
         /** True when the banner or icon comes from the chosen icon pack. */
         boolean fromPack;
+        /** Its picture in {@link TileCache}, or "" (inputs, Settings, Haven Settings). */
+        String tile = "";
         Intent intent;
     }
 
@@ -47,8 +49,10 @@ final class Apps {
         Map<String, Boolean> seen = new HashMap<>();
         // Icon packs and wallpaper plugins aren't apps you open; they're chosen in Haven Settings.
         for (String pkg : addOns(c)) seen.put(pkg, true);
+        TileCache.begin(c);
         addActivities(c, pm, Intent.CATEGORY_LEANBACK_LAUNCHER, apps, seen);
         addActivities(c, pm, Intent.CATEGORY_LAUNCHER, apps, seen);
+        TileCache.finish();
         Collections.sort(apps, (a, b) -> a.label.compareToIgnoreCase(b.label));
 
         LinkedHashMap<String, Entry> map = new LinkedHashMap<>();
@@ -94,6 +98,61 @@ final class Apps {
         map.put(h.key, h);
         return map;
     }
+
+    /**
+     * The app list as it was last time, from Haven's files, for showing straight away: after
+     * power-on, asking Android for the apps can take several seconds. Empty if there's none.
+     */
+    static LinkedHashMap<String, Entry> saved(Context c) {
+        LinkedHashMap<String, Entry> map = new LinkedHashMap<>();
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(SAVED, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject o = a.getJSONObject(i);
+                Entry e = new Entry();
+                e.key = o.getString("k");
+                e.label = o.getString("l");
+                e.pkg = o.optString("p", null);
+                e.intent = Intent.parseUri(o.getString("i"), 0);
+                e.tint = o.optInt("t", e.tint);
+                e.tile = o.optString("c", "");
+                if (e.key.equals(HAVEN_SETTINGS)) e.banner = c.getDrawable(R.drawable.banner);
+                else if (e.key.equals("settings")) e.icon = c.getDrawable(android.R.drawable.ic_menu_preferences);
+                else if (!e.tile.isEmpty() && !TileCache.loadSaved(c, e.tile, e)) return new LinkedHashMap<>(); // redraw all
+                map.put(e.key, e);
+            }
+        } catch (Exception ex) {
+            return new LinkedHashMap<>();
+        }
+        return map;
+    }
+
+    /** Remembers the list for {@link #saved}. */
+    static void save(Context c, LinkedHashMap<String, Entry> map) {
+        org.json.JSONArray a = new org.json.JSONArray();
+        try {
+            for (Entry e : map.values()) {
+                a.put(new org.json.JSONObject().put("k", e.key).put("l", e.label).put("p", e.pkg)
+                        .put("i", e.intent != null ? e.intent.toUri(0) : "").put("t", e.tint).put("c", e.tile));
+            }
+        } catch (Exception ignored) {
+            return;
+        }
+        c.getSharedPreferences("haven", Context.MODE_PRIVATE).edit().putString(SAVED, a.toString()).apply();
+    }
+
+    /** Same apps, names and pictures: nothing on screen would change. */
+    static boolean same(Map<String, Entry> a, Map<String, Entry> b) {
+        if (a.size() != b.size()) return false;
+        java.util.Iterator<Entry> x = a.values().iterator(), y = b.values().iterator();
+        while (x.hasNext()) {
+            Entry p = x.next(), q = y.next();
+            if (!p.key.equals(q.key) || !p.label.equals(q.label) || !p.tile.equals(q.tile) || p.fromPack != q.fromPack) return false;
+        }
+        return true;
+    }
+
+    private static final String SAVED = "savedApps";
 
     /**
      * Recently used packages, newest first. Uses Android's usage history when Haven has usage
@@ -175,16 +234,22 @@ final class Apps {
         e.intent = new Intent(Intent.ACTION_MAIN).addCategory(category)
                 .setClassName(ai.packageName, ai.name)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        // The tile as drawn last time, if nothing it depends on has changed.
+        String key = TileCache.key(ai);
+        e.tile = key;
+        if (TileCache.load(c, key, e)) return e;
         // The icon pack's picture, if it has one, so the app's own banner isn't loaded for nothing.
-        if (packIcon(c, e)) return e;
-        Drawable banner = ai.loadBanner(pm);
-        if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
-        e.banner = HavenBitmaps.banner(c, banner);
-        if (banner == null) {
-            Drawable icon = ri.loadIcon(pm);
-            e.tint = Ui.averageColor(icon);
-            e.icon = HavenBitmaps.icon(c, icon);
+        if (!packIcon(c, e)) {
+            Drawable banner = ai.loadBanner(pm);
+            if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
+            e.banner = HavenBitmaps.banner(c, banner);
+            if (banner == null) {
+                Drawable icon = ri.loadIcon(pm);
+                e.tint = Ui.averageColor(icon);
+                e.icon = HavenBitmaps.icon(c, icon);
+            }
         }
+        TileCache.save(key, e);
         return e;
     }
 }

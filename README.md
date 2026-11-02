@@ -76,6 +76,10 @@ about 1.5 MB and Haven uses around 80 MB of memory on a 2.5 GB TV.
   that has nowhere to go still answers.
 - **Light on memory**: banners, icons and posters are kept at the size they're shown, and Haven
   lets go of its pictures while another app is in front, so the TV is less likely to close it.
+- **Quick to start, even right after power-on**: Haven remembers your apps, their tiles, posters
+  and the last wallpaper, so Home is complete in about 2 seconds while it checks for changes in
+  the background, and it doesn't wait for the internet. Startup timings are in the log:
+  `adb logcat -s HavenTiming`.
 - **Settings** in two panels (sections on the left, options on the right). Left/Right changes a
   value in place.
 - **Updates itself**: Haven checks GitHub for new versions and installs them when you say so.

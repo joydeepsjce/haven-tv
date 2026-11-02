@@ -97,7 +97,9 @@ public class HomeActivity extends Activity {
     private static final long WEATHER_EVERY_MS = 30 * 60_000, WEATHER_RETRY_MS = 5 * 60_000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ExecutorService bg = HavenBitmaps.background(1, "haven-bg");
+    private final ExecutorService bg = HavenBitmaps.worker("haven-bg");
+    /** Up next / Top picks data (the TV's provider): Home is waiting for it, so normal priority. */
+    private final ExecutorService rows = HavenBitmaps.worker("haven-rows");
     private final ExecutorService net = HavenBitmaps.background(1, "haven-net");
     private final Map<String, Apps.Entry> entries = new LinkedHashMap<>();
 
@@ -178,8 +180,29 @@ public class HomeActivity extends Activity {
 
     // ---------------------------------------------------------------- lifecycle
 
+    /** The Home screen that's showing; a new one closes an older one (see onCreate). */
+    private static java.lang.ref.WeakReference<HomeActivity> live = new java.lang.ref.WeakReference<>(null);
+    /** This copy was opened as an ordinary app and handed over to the Home one (see onCreate). */
+    private boolean handedOver;
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // Opened as an ordinary app (Google TV's app list, adb, after an update) Android starts a
+        // second Haven in its own task and keeps both, each with all its pictures. Open the one
+        // Home instead and close this copy.
+        if (getIntent() == null || !getIntent().hasCategory(Intent.CATEGORY_HOME)) {
+            handedOver = true;
+            try {
+                startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .setClass(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception ignored) { }
+            finish();
+            return;
+        }
+        HomeActivity older = live.get();
+        if (older != null && older != this && !older.isFinishing()) older.finish();
+        live = new java.lang.ref.WeakReference<>(this);
+        Timing.mark("onCreate");
         Ui.init(this);
         screenH = getResources().getDisplayMetrics().heightPixels;
         store = new Store(this);
@@ -191,6 +214,7 @@ public class HomeActivity extends Activity {
         // Watch for "optimiser" apps resetting Haven's settings, even while Haven isn't running.
         Keeper.schedule(this);
         buildLayout();
+        root.getViewTreeObserver().addOnDrawListener(() -> Timing.mark("first frame"));
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -200,6 +224,9 @@ public class HomeActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED);
         else registerReceiver(pkgReceiver, f);
         reloadEntries();
+        // Up next / Top picks don't need the app list (only its names, for the badges, filled in
+        // when it arrives): after power-on the list can take seconds, so don't wait for it.
+        loadContinue();
     }
 
     @Override protected void onResume() {
@@ -276,12 +303,17 @@ public class HomeActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (handedOver) {
+            super.onDestroy();
+            return;
+        }
         unregisterReceiver(pkgReceiver);
         slideshow.release();
         sounds.release();
         bg.shutdownNow();
         net.shutdownNow();
         img.shutdownNow();
+        rows.shutdownNow();
         super.onDestroy();
     }
 
@@ -623,6 +655,7 @@ public class HomeActivity extends Activity {
     }
 
     private void showCredit(String title, String line, int color) {
+        Timing.mark("wallpaper shown");
         photoColor = color;
         invalidateAll(topBar); // the tab capsule's tint follows the photo
         GlassDrawable.backdropChanged();
@@ -661,15 +694,34 @@ public class HomeActivity extends Activity {
     // ---------------------------------------------------------------- entries and placement
 
     private void reloadEntries() {
+        boolean first = entries.isEmpty();
         bg.execute(() -> {
+            // First load: show last time's list at once, then the real one if anything changed.
+            if (first) {
+                LinkedHashMap<String, Apps.Entry> saved = Apps.saved(this);
+                if (!saved.isEmpty()) {
+                    Timing.mark("saved apps (" + saved.size() + ")");
+                    ui.post(() -> { if (entries.isEmpty()) applyEntries(saved); });
+                }
+            }
             LinkedHashMap<String, Apps.Entry> map = Apps.loadAll(this);
-            ui.post(() -> applyEntries(map));
+            Apps.save(this, map);
+            ui.post(() -> {
+                if (Apps.same(entries, map)) {
+                    Timing.mark("apps loaded (unchanged)");
+                    entries.clear();
+                    entries.putAll(map);
+                } else {
+                    applyEntries(map);
+                }
+            });
         });
     }
 
     private void applyEntries(LinkedHashMap<String, Apps.Entry> map) {
         View focused = getCurrentFocus();
         String focusKey = focused != null && focused.getTag() instanceof String ? (String) focused.getTag() : null;
+        Timing.mark("apps loaded");
         entries.clear();
         entries.putAll(map);
         if (!store.hasDock()) {
@@ -984,11 +1036,20 @@ public class HomeActivity extends Activity {
     }
 
     /** Fills Continue watching from other apps' Watch Next rows (system TV provider). */
+    /** A load is running; another request while it runs just makes it run once more after. */
+    private boolean continueBusy, continueAgain, netflixRefreshing;
+
     private void loadContinue() {
+        if (continueBusy) {
+            continueAgain = true;
+            return;
+        }
+        continueBusy = true;
         boolean wantUpNext = rowOn(ROW_UPNEXT), wantPicks = rowOn(ROW_PICKS);
-        img.execute(() -> {
+        rows.execute(() -> {
             // Rows that are turned off aren't loaded at all (no queries, no pictures).
             List<WatchNext.Item> items = wantUpNext || wantPicks ? WatchNext.load(this, 15) : new ArrayList<>();
+            Timing.mark("watch next read");
             Set<String> watching = new HashSet<>();
             for (WatchNext.Item i : items) watching.add(i.title);
             if (!wantUpNext) items = new ArrayList<>();
@@ -996,7 +1057,11 @@ public class HomeActivity extends Activity {
             // Netflix publishes no home-screen channel, so add its trending titles (they open on
             // Google TV's page for the title, which has a Netflix button), every third card.
             List<WatchNext.Item> reco = new ArrayList<>();
-            List<Media.Item> nf = wantPicks ? Media.netflix(this) : new ArrayList<>();
+            // The saved list, even if old: the rows never wait for the internet. A new one is
+            // fetched afterwards and the row updated when it arrives.
+            List<Media.Item> nf = wantPicks ? Media.netflixSaved(this) : new ArrayList<>();
+            boolean refresh = wantPicks && !Media.netflixFresh(this);
+            Timing.mark("netflix list (" + nf.size() + ")");
             int n = 0;
             for (int i = 0; i < picks.size() || n < nf.size(); i++) {
                 if (i < picks.size()) reco.add(picks.get(i));
@@ -1014,8 +1079,32 @@ public class HomeActivity extends Activity {
             ui.post(() -> {
                 fillUpNext(upNextItems);
                 fillWatch(recoSec, reco);
+                continueBusy = false;
+                if (continueAgain) {
+                    continueAgain = false;
+                    loadContinue();
+                } else if (refresh) {
+                    refreshNetflix(0);
+                }
             });
         });
+    }
+
+    /** Retry delays for a new Netflix list: right after power-on the internet isn't up yet. */
+    private static final long[] NETFLIX_RETRY_MS = {0, 5_000, 15_000, 30_000, 60_000, 120_000};
+
+    private void refreshNetflix(int attempt) {
+        if (netflixRefreshing || attempt >= NETFLIX_RETRY_MS.length) return;
+        netflixRefreshing = true;
+        ui.postDelayed(() -> net.execute(() -> {
+            boolean ok = Media.refreshNetflix(this);
+            Timing.mark("netflix refreshed (" + ok + ", try " + (attempt + 1) + ")");
+            ui.post(() -> {
+                netflixRefreshing = false;
+                if (ok) loadContinue();
+                else refreshNetflix(attempt + 1);
+            });
+        }), NETFLIX_RETRY_MS[attempt]);
     }
 
     /** The Up next card's parts, updated in place when the title changes (so focus stays put). */
@@ -1045,6 +1134,7 @@ public class HomeActivity extends Activity {
         }
         upNextSec.box.setVisibility(View.VISIBLE);
         bindUpNext();
+        Timing.mark("up next shown");
     }
 
     /** A wide glass card: the title's artwork with its app, then Up next, title, episode, progress, Resume. */
@@ -1260,12 +1350,14 @@ public class HomeActivity extends Activity {
     private void fillWatch(Section s, List<WatchNext.Item> items) {
         StringBuilder key = new StringBuilder();
         for (WatchNext.Item i : items) key.append(i.pkg).append('/').append(i.title).append('/').append(i.image).append('|');
+        key.append(entries.isEmpty() ? "no apps yet" : ""); // redraw once the app names (badges) are known
         if (key.toString().equals(rowShown.get(s)) && s.row.getChildCount() > 0) return;
         View f = getCurrentFocus();
         if (f != null && f.getParent() instanceof View && s.row.indexOfChild((View) f.getParent()) >= 0) return;
         rowShown.put(s, key.toString());
         s.row.removeAllViews();
         for (WatchNext.Item i : items) s.add(continueCell(i, s));
+        if (s == recoSec && !items.isEmpty()) Timing.mark("top picks shown");
         s.box.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
     }
 

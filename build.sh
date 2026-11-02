@@ -5,7 +5,8 @@
 # build-tools and platforms;android-34 installed:
 #   ANDROID_HOME=/path/to/sdk sh build.sh
 # Optional: BUILD_TOOLS=34.0.0, KEYSTORE=haven.keystore, KS_PASS=... (see below),
-# TMDB_KEY=... or TMDB_KEY_FILE=path (a TMDB API key for Top picks; JustWatch is used without one).
+# TMDB_KEY=... or TMDB_KEY_FILE=path (a TMDB API key for Top picks; JustWatch is used without one),
+# DEBUGGABLE=1 for a test build that allows heap dumps (never release one).
 # Works on Linux, macOS and Windows (Git Bash).
 set -e
 cd "$(dirname "$0")"
@@ -35,7 +36,7 @@ printf 'package home.haven.tv;\n\nfinal class BuildKey {\n    static final Strin
     "$(printf '%s' "${TMDB_KEY:-}" | tr -cd 'A-Za-z0-9._-')" > build/gen/home/haven/tv/BuildKey.java
 "$(tool aapt2)" compile --dir res -o build/res.zip
 "$(tool aapt2)" link -I "$JAR" --manifest AndroidManifest.xml \
-    --min-sdk-version 26 --target-sdk-version 34 --java build/gen -o build/base.apk build/res.zip
+    --min-sdk-version 26 --target-sdk-version 34 ${DEBUGGABLE:+--debug-mode} --java build/gen -o build/base.apk build/res.zip
 # Projectivy's wallpaper plugin interface (aidl/), compiled to Java next to R.java.
 "$(tool aidl)" -I aidl -o build/gen aidl/tv/projectivy/plugin/wallpaperprovider/api/IWallpaperProviderService.aidl
 javac -nowarn -Xlint:-options --release 11 -classpath "$JAR" -encoding UTF-8 \

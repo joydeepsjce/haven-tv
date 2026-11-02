@@ -68,6 +68,9 @@
         android:theme="@style/Theme.Haven"
         android:allowBackup="false">
 
+        <!-- Lets simpleperf and Android's profilers measure Haven over adb (no debugging access). -->
+        <profileable android:shell="true" />
+
         <activity
             android:name=".HomeActivity"
             android:exported="true"

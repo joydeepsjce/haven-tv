@@ -69,8 +69,8 @@ final class Slideshow {
     private static final int AUTO = -1;
     /** Daily lists change once a day; ask again after this long. */
     private static final long DAILY_FRESH_MS = 6 * 3600_000L;
-    /** The last web photo shown, kept small for when the internet is down. */
-    private static final String LAST = "last-wallpaper.jpg";
+    /** The last web photo shown, kept as downloaded for when the internet is down (and to skip a download). */
+    private static final String LAST = "last-wallpaper.jpg", LAST_SRC = "lastWallSrc";
     private static final long FADE_MS = 1800;
     private static final int MAX_DOWNLOAD = 30 * 1024 * 1024;
 
@@ -134,11 +134,35 @@ final class Slideshow {
                 plugin = null;
             }
             if (info != null && plugin == null) plugin = new Plugins.Connection(c, info);
+            // Daily photos: show the last one straight away from Haven's files while the list
+            // comes from the internet (right after power-on that can take many seconds).
+            String lastSrc = c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(LAST_SRC, "");
+            boolean instant = photos == null && (BING.equals(id) || WIKIMEDIA.equals(id)) && !lastSrc.isEmpty()
+                    && new File(c.getFilesDir(), LAST).isFile();
+            if (instant) {
+                Item last = lastItem();
+                Bitmap b = decode(last);
+                Bitmap soft = b != null ? blurred(b) : null;
+                if (b != null) ui.post(() -> {
+                    if (photos != null) return;
+                    crossfade(b, soft, last);
+                    lastChange = SystemClock.uptimeMillis();
+                });
+            }
             List<Item> list = load();
             ui.post(() -> {
                 photos = list;
                 index = -1;
-                if (running) showNext();
+                // Already showing the saved photo: carry on from it at the usual interval.
+                int at = -1;
+                for (int i = 0; instant && i < list.size(); i++) if (list.get(i).src.equals(lastSrc)) at = i;
+                if (at >= 0 && lastChange > 0) {
+                    index = at;
+                    ui.removeCallbacks(next);
+                    if (running) ui.postDelayed(next, intervalMs);
+                } else if (running) {
+                    showNext();
+                }
             });
         });
     }
@@ -360,7 +384,6 @@ final class Slideshow {
         view.setBackground(null); // the photo covers the screen now; black was only for before it
         GlassDrawable.backdrop = soft;
         listener.onSlide(item.title, item.credit, mainColor(soft));
-        keepLast(b, item);
     }
 
     /** Average of the photo's more colourful pixels, so a blue sky or red dune wins over grey rock. */
@@ -391,34 +414,38 @@ final class Slideshow {
         Plugins.Connection p = plugin;
         if (p != null) list = fromPlugin(p.get(Event.timeElapsed()), p.info);
         fetchedAt = SystemClock.elapsedRealtime();
-        if (list.isEmpty()) {
-            File last = new File(c.getFilesDir(), LAST);
-            android.content.SharedPreferences prefs = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
-            if (last.isFile()) list.add(new Item(last.getAbsolutePath(), prefs.getString("lastWallTitle", ""),
-                    prefs.getString("lastWallCredit", ""), Wallpaper.IMAGE, AUTO));
-        }
+        if (list.isEmpty() && new File(c.getFilesDir(), LAST).isFile()) list.add(lastItem());
         return list;
+    }
+
+    /** The saved last photo, with its title and credit. */
+    private Item lastItem() {
+        android.content.SharedPreferences prefs = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
+        return new Item(new File(c.getFilesDir(), LAST).getAbsolutePath(), prefs.getString("lastWallTitle", ""),
+                prefs.getString("lastWallCredit", ""), Wallpaper.IMAGE, AUTO);
     }
 
     private static Item web(DailyPhotos.Photo p) {
         return new Item(p.url, p.title, p.credit, Wallpaper.IMAGE, AUTO);
     }
 
-    /** Keeps the photo just shown (web sources only) as the offline fallback: one small JPEG. */
-    private void keepLast(Bitmap b, Item item) {
-        if (!item.src.startsWith("http")) return;
-        bg.execute(() -> {
-            File f = new File(c.getFilesDir(), LAST), tmp = new File(c.getFilesDir(), LAST + ".tmp");
-            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
-                if (b.isRecycled() || !b.compress(Bitmap.CompressFormat.JPEG, 80, out)) return;
-            } catch (IOException e) {
-                return;
-            }
-            if (tmp.renameTo(f)) {
-                c.getSharedPreferences("haven", Context.MODE_PRIVATE).edit()
-                        .putString("lastWallTitle", item.title).putString("lastWallCredit", item.credit).apply();
-            }
-        });
+    /**
+     * Keeps the web photo just downloaded as the offline fallback, as the file it came in (no
+     * re-encoding), once per photo. Called on the slideshow's thread.
+     */
+    private void keepLast(byte[] data, Item item) {
+        android.content.SharedPreferences prefs = c.getSharedPreferences("haven", Context.MODE_PRIVATE);
+        if (item.src.equals(prefs.getString(LAST_SRC, ""))) return;
+        File f = new File(c.getFilesDir(), LAST), tmp = new File(c.getFilesDir(), LAST + ".tmp");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+            out.write(data);
+        } catch (IOException e) {
+            return;
+        }
+        if (tmp.renameTo(f)) {
+            prefs.edit().putString(LAST_SRC, item.src)
+                    .putString("lastWallTitle", item.title).putString("lastWallCredit", item.credit).apply();
+        }
     }
 
     private static void deleteRecursively(File f) {
@@ -495,14 +522,25 @@ final class Slideshow {
                 return b;
             }
             if (item.src.startsWith("http://") || item.src.startsWith("https://")) {
-                // Downloaded into memory only for decoding; nothing is written to storage.
-                byte[] data = download(item.src);
+                // The saved last photo is this one: no need to download it again.
+                File last = new File(c.getFilesDir(), LAST);
+                boolean saved = item.src.equals(c.getSharedPreferences("haven", Context.MODE_PRIVATE).getString(LAST_SRC, ""))
+                        && last.isFile();
+                // Otherwise downloaded into memory; only the last one is kept (see keepLast).
+                byte[] data;
+                if (saved) {
+                    try (InputStream in = new java.io.FileInputStream(last)) { data = readAll(in); }
+                } else {
+                    data = download(item.src);
+                }
                 BitmapFactory.Options o = new BitmapFactory.Options();
                 o.inJustDecodeBounds = true;
                 BitmapFactory.decodeByteArray(data, 0, data.length, o);
                 if (o.outWidth <= 0) return null;
-                return HavenBitmaps.coverScreen(c, o.outWidth, o.outHeight,
+                Bitmap b = HavenBitmaps.coverScreen(c, o.outWidth, o.outHeight,
                         opts -> BitmapFactory.decodeByteArray(data, 0, data.length, opts));
+                if (b != null && !saved) keepLast(data, item);
+                return b;
             }
             String src = item.src;
             BitmapFactory.Options o = new BitmapFactory.Options();

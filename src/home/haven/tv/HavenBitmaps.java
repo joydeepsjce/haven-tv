@@ -41,7 +41,7 @@ final class HavenBitmaps {
     private static Boolean tiny;
 
     /** Under 2 GB: banners too are kept in 16-bit colour (above that, full colour keeps logos crisp). */
-    private static boolean tiny(Context c) {
+    static boolean tiny(Context c) {
         if (tiny == null) {
             android.app.ActivityManager am = c.getSystemService(android.app.ActivityManager.class);
             android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
@@ -123,6 +123,18 @@ final class HavenBitmaps {
         BitmapDrawable out = new BitmapDrawable(c.getResources(), cur);
         out.setFilterBitmap(true);
         return out;
+    }
+
+    /**
+     * A single thread at normal priority, for work Home is waiting on (its rows and apps): on a
+     * busy TV, background-priority threads can wait seconds for a turn.
+     */
+    static java.util.concurrent.ExecutorService worker(String name) {
+        return java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     /** A thread pool whose threads never compete with drawing the screen (like Glassio's blur worker). */

@@ -48,10 +48,27 @@ final class Tmdb {
             if (title.isEmpty() || backdrop.isEmpty() || "null".equals(backdrop)) continue;
             Media.Item item = new Media.Item(title, "Netflix", IMG + "w780" + backdrop);
             item.textless = true;
-            item.logo = logo(type, r.optInt("id"));
+            item.tmdb = type + "/" + r.optInt("id");
             out.add(item);
         }
         return out;
+    }
+
+    /** Looks up the logos of {@code items} (TMDB ones), four at a time. */
+    static void addLogos(List<Media.Item> items) {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        List<java.util.concurrent.Future<?>> jobs = new ArrayList<>();
+        for (Media.Item item : items) {
+            if (item.tmdb.isEmpty()) continue;
+            String[] t = item.tmdb.split("/");
+            jobs.add(pool.submit(() -> { item.logo = logo(t[0], Integer.parseInt(t[1])); }));
+        }
+        for (java.util.concurrent.Future<?> j : jobs) {
+            try {
+                j.get(20, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception ignored) { }
+        }
+        pool.shutdownNow();
     }
 
     /** The title's logo (a transparent PNG), English first, else the original language's; "" if none. */

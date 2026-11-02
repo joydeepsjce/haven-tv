@@ -44,6 +44,8 @@ final class Media {
         String logo = "";
         /** True when the picture has no title in it (a backdrop), so the card shows the title. */
         boolean textless;
+        /** TMDB "tv/123" or "movie/123" while the list is built (for its logo); not saved. */
+        String tmdb = "";
 
         Item(String title, String subtitle, String image) {
             this.title = title;
@@ -81,9 +83,34 @@ final class Media {
      * languages; elsewhere it's simply what's trending there.
      */
     static List<Item> netflix(Context c) {
+        return netflix(c, true);
+    }
+
+    /**
+     * The saved Netflix list, even if it's old, without going online: shown straight away so
+     * Home never waits for the network (right after power-on it can take many seconds to come up).
+     */
+    static List<Item> netflixSaved(Context c) {
+        return netflix(c, false);
+    }
+
+    /** True when the saved list is recent enough (under 6 hours); otherwise call {@link #refreshNetflix}. */
+    static boolean netflixFresh(Context c) {
+        SharedPreferences p = c.getSharedPreferences("media", Context.MODE_PRIVATE);
+        String name = (Tmdb.available() ? "tmdbNetflix_" : "jwNetflix2_") + country();
+        return System.currentTimeMillis() - p.getLong(name + "At", 0) < FRESH_MS;
+    }
+
+    /** Fetches a new Netflix list and saves it; false if the internet or the service isn't reachable. */
+    static boolean refreshNetflix(Context c) {
+        netflix(c, true);
+        return netflixFresh(c);
+    }
+
+    private static List<Item> netflix(Context c, boolean online) {
         String cc = country();
         if (Tmdb.available()) {
-            List<Item> t = cached(c, "tmdbNetflix_" + cc, () -> {
+            List<Item> t = cached(c, "tmdbNetflix_" + cc, online, () -> {
                 List<List<Item>> lists = new ArrayList<>();
                 if (cc.equals("IN")) {
                     lists.add(Tmdb.netflix("tv", cc, "hi", 15));
@@ -93,12 +120,14 @@ final class Media {
                     lists.add(Tmdb.netflix("tv", cc, null, 15));
                     lists.add(Tmdb.netflix("movie", cc, null, 15));
                 }
-                return interleave(lists);
+                List<Item> kept = interleave(lists);
+                Tmdb.addLogos(kept); // only for the 12 kept, not every title looked at
+                return kept;
             });
             if (!t.isEmpty()) return t;
         }
         // Backdrops (landscape) since v2 of this list; the old one held portrait posters.
-        return cached(c, "jwNetflix2_" + cc, () -> {
+        return cached(c, "jwNetflix2_" + cc, online, () -> {
             List<List<Item>> lists = new ArrayList<>();
             if (cc.equals("IN")) {
                 lists.add(query(cc, "SHOW", "IN", 15));
@@ -133,8 +162,9 @@ final class Media {
         List<Item> run() throws Exception;
     }
 
-    private static List<Item> cached(Context c, String name, Fetch fetch) {
+    private static List<Item> cached(Context c, String name, boolean online, Fetch fetch) {
         SharedPreferences p = c.getSharedPreferences("media", Context.MODE_PRIVATE);
+        if (!online) return fromJson(p.getString(name, "[]"));
         long at = p.getLong(name + "At", 0);
         if (System.currentTimeMillis() - at < FRESH_MS) {
             List<Item> keep = fromJson(p.getString(name, "[]"));
@@ -289,10 +319,27 @@ final class Media {
             }
         }
         try {
+            // Kept at card size after the first time: decoding the full download again on every
+            // start was most of Haven's startup CPU.
+            File card = new File(new File(c.getFilesDir(), "posters"), Integer.toHexString(url.hashCode()) + ".card.jpg");
+            if (card.isFile()) {
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inPreferredConfig = Bitmap.Config.RGB_565;
+                b = BitmapFactory.decodeFile(card.getPath(), o);
+                if (b != null) {
+                    POSTERS.put(url, b);
+                    return b;
+                }
+            }
             File f = file(c, url);
             if (f == null) return null;
             b = cardSize(c, o -> BitmapFactory.decodeFile(f.getPath(), o));
-            if (b != null) POSTERS.put(url, b);
+            if (b == null) return null;
+            POSTERS.put(url, b);
+            File tmp = new File(card.getPath() + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                if (b.compress(Bitmap.CompressFormat.JPEG, 88, out) && tmp.renameTo(card)) f.delete();
+            } catch (java.io.IOException ignored) { }
             return b;
         } catch (Exception | OutOfMemoryError e) {
             return null;
